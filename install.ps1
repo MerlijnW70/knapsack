@@ -1,11 +1,11 @@
 # Knapsack one-line installer (Windows):
-#   irm https://knapsack.dev/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/MerlijnW70/knapsack/main/install.ps1 | iex
 # Downloads the release binary, verifies its checksum, installs to %USERPROFILE%\.knapsack\bin,
 # then wires the Claude Code hook + MCP server via `knapsack install --apply`.
 # Override: $env:KNAPSACK_VERSION  $env:KNAPSACK_REPO  $env:KNAPSACK_BASE_URL
 $ErrorActionPreference = "Stop"
 
-$repo    = if ($env:KNAPSACK_REPO) { $env:KNAPSACK_REPO } else { "knapsack-dev/knapsack" }
+$repo    = if ($env:KNAPSACK_REPO) { $env:KNAPSACK_REPO } else { "MerlijnW70/knapsack" }
 $version = if ($env:KNAPSACK_VERSION) { $env:KNAPSACK_VERSION } else { "latest" }
 $base    = if ($env:KNAPSACK_BASE_URL) { $env:KNAPSACK_BASE_URL } else { "https://github.com/$repo/releases" }
 

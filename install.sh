@@ -1,12 +1,12 @@
 #!/bin/sh
 # Knapsack one-line installer (Linux/macOS):
-#   curl -fsSL https://knapsack.dev/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/MerlijnW70/knapsack/main/install.sh | sh
 # Downloads the release binary, verifies its checksum, installs to ~/.knapsack/bin,
 # then wires the Claude Code hook + MCP server via `knapsack install --apply`.
 # Override: KNAPSACK_VERSION=vX.Y.Z  KNAPSACK_REPO=owner/repo  KNAPSACK_BASE_URL=...
 set -eu
 
-REPO="${KNAPSACK_REPO:-knapsack-dev/knapsack}"
+REPO="${KNAPSACK_REPO:-MerlijnW70/knapsack}"
 VERSION="${KNAPSACK_VERSION:-latest}"
 BASE="${KNAPSACK_BASE_URL:-https://github.com/$REPO/releases}"
 

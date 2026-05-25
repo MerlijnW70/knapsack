@@ -17,9 +17,9 @@ near-identical re-read; a conditional one pays only for what changed.
 
 ```sh
 # Linux / macOS
-curl -fsSL https://knapsack.dev/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/MerlijnW70/knapsack/main/install.sh | sh
 # Windows (PowerShell)
-irm https://knapsack.dev/install.ps1 | iex
+irm https://raw.githubusercontent.com/MerlijnW70/knapsack/main/install.ps1 | iex
 ```
 
 The installer downloads the binary, verifies its checksum, creates `~/.knapsack`, **backs up
