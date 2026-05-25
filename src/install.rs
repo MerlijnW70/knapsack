@@ -73,12 +73,16 @@ fn entry_is_knapsack(e: &Json) -> bool {
     }
     false
 }
+/// The one command string we own: `"<bin>" hook`. Convergence target for apply/repair.
+fn canonical_cmd(bin: &str) -> String {
+    format!("\"{}\" hook", bin)
+}
 fn hook_entry(bin: &str) -> Json {
     Json::Obj(vec![
         ("matcher".into(), Json::Str("Bash".into())),
         ("hooks".into(), Json::Arr(vec![Json::Obj(vec![
             ("type".into(), Json::Str("command".into())),
-            ("command".into(), Json::Str(format!("\"{}\" hook", bin))),
+            ("command".into(), Json::Str(canonical_cmd(bin))),
         ])])),
     ])
 }
@@ -88,18 +92,46 @@ fn root_has_hook(root: &Json) -> bool {
     }
     false
 }
+/// Converge the knapsack PreToolUse hook to the canonical command, not just "present or not".
+/// Predicate = semantic ownership (cmd_is_knapsack) AND exact desired target: a knapsack hook
+/// pointing at a *stale* binary path is rewritten in place; a missing one is added; an
+/// already-canonical one is left untouched (NoChange). This is what makes a re-point/repair
+/// actually fix drift instead of seeing "a knapsack hook exists" and doing nothing.
 fn apply_hook(root: &mut Json, bin: &str) -> bool {
-    if root_has_hook(root) {
-        return false;
-    }
+    let want = canonical_cmd(bin);
     let hooks = entry(root, "hooks", Json::Obj(vec![]));
     let pre = entry(hooks, "PreToolUse", Json::Arr(vec![]));
-    if let Json::Arr(a) = pre {
-        a.push(hook_entry(bin));
-    } else {
-        *pre = Json::Arr(vec![hook_entry(bin)]);
+    if !matches!(pre, Json::Arr(_)) {
+        *pre = Json::Arr(vec![]);
     }
-    true
+    let mut found = false;
+    let mut changed = false;
+    if let Json::Arr(entries) = pre {
+        for e in entries.iter_mut() {
+            if let Some(Json::Arr(hs)) = get_mut(e, "hooks") {
+                for h in hs.iter_mut() {
+                    let is_ours = h.get("command").and_then(|c| c.as_str()).map(cmd_is_knapsack).unwrap_or(false);
+                    if !is_ours {
+                        continue;
+                    }
+                    found = true;
+                    if let Json::Obj(o) = h {
+                        if let Some(p) = o.iter().position(|(k, _)| k == "command") {
+                            if o[p].1 != Json::Str(want.clone()) {
+                                o[p].1 = Json::Str(want.clone());
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !found {
+            entries.push(hook_entry(bin));
+            changed = true;
+        }
+    }
+    changed
 }
 fn remove_hook(root: &mut Json) -> bool {
     if let Some(hooks) = get_mut(root, "hooks") {
@@ -228,6 +260,47 @@ pub fn mcp_has_server(path: &Path) -> bool {
     fs::read_to_string(path).ok().and_then(|t| json::parse(&t).ok()).map(|r| root_has_mcp(&r)).unwrap_or(false)
 }
 
+// ---------- provenance: which binary does each side actually point at? ----------
+/// Pull the executable out of a hook command. Canonical form is `"<bin>" hook`; we also
+/// tolerate a bare `bin hook`. Returns the path token, not the whole command line.
+fn cmd_bin(cmd: &str) -> Option<String> {
+    let c = cmd.trim();
+    if let Some(rest) = c.strip_prefix('"') {
+        return rest.split_once('"').map(|(b, _)| b.to_string());
+    }
+    c.split_whitespace().next().map(|s| s.to_string())
+}
+fn hook_cmd_in(root: &Json) -> Option<String> {
+    if let Some(Json::Arr(a)) = root.get("hooks").and_then(|h| h.get("PreToolUse")) {
+        for e in a {
+            if let Some(Json::Arr(hs)) = e.get("hooks") {
+                for h in hs {
+                    if let Some(cmd) = h.get("command").and_then(|c| c.as_str()) {
+                        if cmd_is_knapsack(cmd) {
+                            return Some(cmd.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+/// The binary the PreToolUse knapsack hook would run, per settings.json.
+pub fn hook_binary(path: &Path) -> Option<String> {
+    let root = fs::read_to_string(path).ok().and_then(|t| json::parse(&t).ok())?;
+    hook_cmd_in(&root).as_deref().and_then(cmd_bin)
+}
+/// The binary the knapsack MCP server would run, per the mcp config.
+pub fn mcp_binary(path: &Path) -> Option<String> {
+    let root = fs::read_to_string(path).ok().and_then(|t| json::parse(&t).ok())?;
+    root.get("mcpServers")
+        .and_then(|s| s.get("knapsack"))
+        .and_then(|k| k.get("command"))
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string())
+}
+
 // ---------- smoke test (self-contained, temp store) ----------
 pub fn smoke() -> Result<(), String> {
     use crate::content_type::ContentType;
@@ -311,6 +384,53 @@ pub fn run_checks() -> Vec<Check> {
     } else {
         mk("MCP configured", Status::Warn, format!("not in {} — run `knapsack install --apply`", mcp.display()))
     });
+    // 5b. binary provenance: what the hook and MCP are *configured* to launch (the path on
+    // disk), plus the binary running THIS doctor. This is on-disk/config provenance, NOT a
+    // claim about what the session's already-running hook/MCP processes loaded — those keep
+    // their old binary until Claude Code restarts. Labels say "configured" so the report
+    // can't be misread as runtime provenance. A 3-way split here is the "accidental install".
+    let sha = |p: &str| crate::sha256::sha256_file(Path::new(p));
+    let this_sha = std::env::current_exe().ok().and_then(|p| crate::sha256::sha256_file(&p));
+    let hook_bin = hook_binary(&sp);
+    let mcp_bin = mcp_binary(&mcp);
+    let hook_sha = hook_bin.as_deref().and_then(&sha);
+    let mcp_sha = mcp_bin.as_deref().and_then(&sha);
+    let prov = |label: &str, bin: &Option<String>, s: &Option<String>| -> Check {
+        match (bin, s) {
+            (Some(p), Some(s)) => mk(label, Status::Ok, format!("{}  (sha {})", p, crate::sha256::short_hex(s))),
+            (Some(p), None) => mk(label, Status::Fail, format!("{} — file not found", p)),
+            (None, _) => mk(label, Status::Warn, "not configured — run `knapsack install --apply`".into()),
+        }
+    };
+    c.push(prov("hook configured binary", &hook_bin, &hook_sha));
+    c.push(prov("MCP configured binary", &mcp_bin, &mcp_sha));
+    c.push(match (&hook_sha, &mcp_sha) {
+        (Some(h), Some(m)) if h == m => {
+            if this_sha.as_ref().map(|t| t == h).unwrap_or(true) {
+                mk("configured binary drift", Status::Ok, format!("hook == MCP == current binary (sha {})", crate::sha256::short_hex(h)))
+            } else {
+                mk(
+                    "configured binary drift",
+                    Status::Fail,
+                    format!(
+                        "hook/MCP {} != current binary {} — run `knapsack install --repair`",
+                        crate::sha256::short_hex(h),
+                        crate::sha256::short_hex(this_sha.as_deref().unwrap_or("?"))
+                    ),
+                )
+            }
+        }
+        (Some(h), Some(m)) => mk(
+            "configured binary drift",
+            Status::Fail,
+            format!(
+                "hook {} != MCP {} — run `knapsack install --repair`",
+                crate::sha256::short_hex(h),
+                crate::sha256::short_hex(m)
+            ),
+        ),
+        _ => mk("configured binary drift", Status::Warn, "can't compare — a referenced binary is missing/unconfigured".into()),
+    });
     // 6. MCP initialize works
     let init = crate::mcp::handle_message(r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#)
         .and_then(|r| json::parse(&r).ok())
@@ -325,9 +445,9 @@ pub fn run_checks() -> Vec<Check> {
         Err(e) => mk("pack/expand smoke", Status::Fail, e),
     });
     // 8. ab command works
-    let rep = crate::ab::compare(Path::new("\0nonexistent-kn"), Path::new("\0nonexistent-ru"));
+    let rep = crate::ab::build(Path::new("\0nonexistent-kn"));
     let out = crate::ab::format(&rep);
-    c.push(if out.contains("head-to-head") {
+    c.push(if out.contains("aggregate") {
         mk("ab report", Status::Ok, "renders".into())
     } else {
         mk("ab report", Status::Fail, "did not render".into())
@@ -353,7 +473,7 @@ pub fn doctor() -> String {
         if ch.status == Status::Warn {
             warns += 1;
         }
-        o.push_str(&format!("  {} {:<20} {}\n", sym, ch.name, ch.detail));
+        o.push_str(&format!("  {} {:<24} {}\n", sym, ch.name, ch.detail));
     }
     o.push('\n');
     o.push_str(if fails > 0 {
@@ -409,6 +529,60 @@ fn bak_note(bak: &Option<PathBuf>) -> String {
         Some(b) => format!("  (backup: {})", b.display()),
         None => String::new(),
     }
+}
+
+/// Safe, idempotent User-PATH guidance for the canonical binary's directory. Advisory only:
+/// the hook and MCP run by absolute path, so PATH matters only for typing `knapsack` in a
+/// shell. Never emits the `setx PATH "$dest;%PATH%"` form (truncates at 1024 chars and folds
+/// the combined PATH into the User scope) — uses the registry-scoped .NET setter instead.
+fn path_guidance() -> String {
+    let dir = match std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        Some(d) => d.display().to_string(),
+        None => return String::new(),
+    };
+    format!(
+        "\n  To resolve `knapsack` in your shell, add it to your user PATH (safe + idempotent):\n    \
+         $d = '{}'; $u = [Environment]::GetEnvironmentVariable('Path','User'); \
+         if (($u -split ';') -notcontains $d) {{ [Environment]::SetEnvironmentVariable('Path', \"$d;$u\", 'User') }}\n",
+        dir
+    )
+}
+
+/// `install --repair` — the stronger sibling of `--apply`. Force-converges the hook AND the
+/// MCP entry to *this* binary (current_exe), preserving backups; prints the canonical
+/// SHA-256 so the hook==MCP==this invariant is verifiable; emits safe PATH guidance; and
+/// ends with a full doctor run. Use after promoting a fresh build to the install location.
+pub fn repair() -> String {
+    let bin = bin_path();
+    let mut o = String::from("knapsack install --repair\n\n");
+
+    let canon_sha = std::env::current_exe().ok().and_then(|p| crate::sha256::sha256_file(&p));
+    o.push_str(&format!("  canonical binary    {}\n", bin));
+    o.push_str(&format!("  canonical sha256    {}\n\n", canon_sha.as_deref().unwrap_or("<unreadable>")));
+
+    let _ = fs::create_dir_all(config::store_dir());
+    if let Some(p) = config::metrics_path().parent() {
+        let _ = fs::create_dir_all(p);
+    }
+
+    let sp = settings_path();
+    match patch_settings_file(&sp, &bin) {
+        Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ hook repointed    {}{}\n", sp.display(), bak_note(&bak))),
+        Ok(Patch::NoChange) => o.push_str(&format!("  • hook already ok   {}\n", sp.display())),
+        Err(e) => o.push_str(&format!("  ✗ hook NOT fixed    {}\n", e)),
+    }
+    let mcp = mcp_config_path();
+    match patch_mcp_file(&mcp, &bin) {
+        Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ MCP repointed     {}{}\n", mcp.display(), bak_note(&bak))),
+        Ok(Patch::NoChange) => o.push_str(&format!("  • MCP already ok    {}\n", mcp.display())),
+        Err(e) => o.push_str(&format!("  ✗ MCP NOT fixed     {}\n", e)),
+    }
+
+    o.push_str(&path_guidance());
+    o.push('\n');
+    o.push_str(&doctor());
+    o.push_str("\nRestart Claude Code to load the repointed hook + MCP server.\n");
+    o
 }
 
 pub fn uninstall(purge: bool) -> String {

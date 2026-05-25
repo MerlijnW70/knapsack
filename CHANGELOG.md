@@ -3,6 +3,36 @@
 All notable changes to Knapsack are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`knapsack install --repair`** — force-converges the Claude Code hook **and** the MCP server
+  onto the canonical installed binary (`current_exe`), backing up each config first, printing the
+  canonical SHA-256, emitting safe User-PATH guidance, and ending with a full `doctor` run.
+- **Binary-provenance checks in `knapsack doctor`**: reports the *configured* hook binary, the
+  *configured* MCP binary, and a *configured binary drift* check (SHA-256) that fails when the
+  hook and MCP point at different builds. Labels say "configured" so the report is about
+  on-disk/config targets, never mistaken for what the session's already-running processes loaded.
+- **Hand-rolled, zero-dependency SHA-256** (`sha256.rs`), pinned to FIPS 180-4 vectors, backing
+  the provenance fingerprints.
+- **Safe, idempotent User-PATH setup on Windows** in `install.ps1`.
+
+### Changed
+
+- **`knapsack ab` is now a knapsack-only savings report** (per-session + aggregate + verdict).
+  The Rucksack head-to-head comparison and the `--rucksack` flag were removed.
+
+### Fixed
+
+- **Stale hooks are repointed, not ignored.** Installer hook detection now converges a knapsack
+  hook to the exact canonical command — an absolute path to an old build is rewritten in place
+  instead of being treated as "already installed" and left alone. An already-canonical hook
+  stays a no-op. This was the root cause of a hook/MCP/PATH binary split that still produced
+  healthy-looking metrics.
+- **No more unsafe PATH guidance.** `install.ps1` no longer suggests `setx PATH "$dest;%PATH%"`,
+  which truncates at 1024 chars and folds the combined machine+user PATH into the user scope.
+
 ## [0.0.1] — 2026-05-25
 
 Initial release: the full product shape — a *conditional* token reducer for agents —

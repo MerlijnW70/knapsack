@@ -161,16 +161,15 @@ fn main() {
 
         "ab" => {
             let kn = flag(rest, "--knapsack").map(std::path::PathBuf::from).unwrap_or_else(config::metrics_path);
-            let ru = flag(rest, "--rucksack")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| config::home().join(".rucksack").join("metrics.jsonl"));
-            print!("{}", knapsack::ab::format(&knapsack::ab::compare(&kn, &ru)));
+            print!("{}", knapsack::ab::format(&knapsack::ab::build(&kn)));
         }
 
         "bench" => knapsack::bench::run(),
         "doctor" => print!("{}", knapsack::install::doctor()),
         "install" => {
-            if rest.iter().any(|a| a == "--apply") {
+            if rest.iter().any(|a| a == "--repair") {
+                print!("{}", knapsack::install::repair());
+            } else if rest.iter().any(|a| a == "--apply") {
                 print!("{}", knapsack::install::apply());
             } else {
                 print_install();
@@ -193,10 +192,10 @@ fn usage() -> ! {
          knapsack delta <old> <new>\n  \
          knapsack store put <file>\n  \
          knapsack metrics\n  \
-         knapsack ab [--knapsack PATH] [--rucksack PATH]\n  \
+         knapsack ab [--knapsack PATH]\n  \
          knapsack bench\n  \
          knapsack doctor\n  \
-         knapsack install [--apply]\n  \
+         knapsack install [--apply|--repair]\n  \
          knapsack uninstall [--purge]"
     );
     exit(1);

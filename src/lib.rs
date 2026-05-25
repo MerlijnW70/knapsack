@@ -24,6 +24,7 @@ pub mod mcp;
 pub mod metrics;
 pub mod pack;
 pub mod recall;
+pub mod sha256;
 pub mod store;
 pub mod structural;
 pub mod token_estimate;

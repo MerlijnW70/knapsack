@@ -32,9 +32,15 @@ try {
   $bin = Join-Path $dest "knapsack.exe"
   Write-Host "knapsack: installed $bin"
 
+  # Add the install dir to the *user* PATH, idempotently. Never use `setx PATH "$dest;%PATH%"`:
+  # setx truncates at 1024 chars and %PATH% expands the combined machine+user PATH into the
+  # user scope, duplicating (and risking loss of) entries. The .NET setter is registry-scoped.
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-  if ($userPath -notlike "*$dest*") {
-    Write-Host "knapsack: add to PATH ->  setx PATH `"$dest;%PATH%`""
+  if (($userPath -split ';') -notcontains $dest) {
+    [Environment]::SetEnvironmentVariable("Path", "$dest;$userPath", "User")
+    Write-Host "knapsack: added $dest to your user PATH (restart your shell to pick it up)"
+  } else {
+    Write-Host "knapsack: $dest already on user PATH"
   }
 
   # Wire the hook + MCP, back up config, smoke test, doctor, print rollback.

@@ -1,7 +1,7 @@
 //! Config patching must MERGE (not clobber), be idempotent, back up, and cleanly reverse.
 use knapsack::install::{
-    mcp_has_server, patch_mcp_file, patch_settings_file, settings_has_hook, unpatch_mcp_file,
-    unpatch_settings_file, Patch,
+    hook_binary, mcp_has_server, patch_mcp_file, patch_settings_file, settings_has_hook,
+    unpatch_mcp_file, unpatch_settings_file, Patch,
 };
 use knapsack::json;
 use std::io::Write;
@@ -45,6 +45,40 @@ fn hook_merges_without_clobbering_and_is_idempotent() {
     assert!(!settings_has_hook(&p));
     let v = json::parse(&std::fs::read_to_string(&p).unwrap()).unwrap();
     assert_eq!(v.get("model").and_then(|x| x.as_str()), Some("opus"), "unrelated content survives uninstall");
+    let _ = std::fs::remove_file(&p);
+}
+
+#[test]
+fn repoints_a_stale_hook_instead_of_no_oping() {
+    // A knapsack hook already exists but points at a STALE absolute path, alongside an
+    // unrelated Edit hook. Re-patching with a new bin must rewrite the stale command in
+    // place (not add a second one, not leave it alone), and must leave the Edit hook be.
+    let p = tmp(
+        "stale",
+        Some(concat!(
+            r#"{"hooks":{"PreToolUse":["#,
+            r#"{"matcher":"Edit","hooks":[{"type":"command","command":"echo hi"}]},"#,
+            r#"{"matcher":"Bash","hooks":[{"type":"command","command":"\"H:/old/knapsack-rs/target/release/knapsack.exe\" hook"}]}"#,
+            r#"]}}"#,
+        )),
+    );
+
+    assert_eq!(hook_binary(&p).as_deref(), Some("H:/old/knapsack-rs/target/release/knapsack.exe"), "starts stale");
+
+    // converge to the canonical bin
+    assert!(matches!(patch_settings_file(&p, "C:/Users/me/.knapsack/bin/knapsack.exe").unwrap(), Patch::Changed(Some(_))), "stale path must be repointed + backed up");
+    assert_eq!(hook_binary(&p).as_deref(), Some("C:/Users/me/.knapsack/bin/knapsack.exe"), "hook now points at the canonical binary");
+
+    // the Edit hook survived and no duplicate knapsack hook was appended
+    let v = json::parse(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    if let json::Json::Arr(a) = v.get("hooks").and_then(|h| h.get("PreToolUse")).unwrap() {
+        assert_eq!(a.len(), 2, "Edit hook kept, knapsack hook rewritten in place (not duplicated)");
+    } else {
+        panic!("PreToolUse not an array");
+    }
+
+    // already canonical -> NoChange
+    assert!(matches!(patch_settings_file(&p, "C:/Users/me/.knapsack/bin/knapsack.exe").unwrap(), Patch::NoChange), "no-op once canonical");
     let _ = std::fs::remove_file(&p);
 }
 

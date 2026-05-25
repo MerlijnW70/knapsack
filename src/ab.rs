@@ -1,13 +1,6 @@
-//! `knapsack ab` — the head-to-head. Reads two metrics.jsonl files (Knapsack's and
-//! Rucksack's), computes net token savings the same way for both (net = saved −
-//! refetched), and reports per-session detail plus an aggregate head-to-head.
-//!
-//! Honest caveat baked into the output: Rucksack's metrics carry NO session id, so the
-//! per-session table is Knapsack-only; the apples-to-apples comparison is the aggregate.
-//! Field names are normalized across the two schemas:
-//!   raw   = "raw" (knapsack) | "orig" (rucksack)
-//!   shown = "shown"          | "comp"
-//!   saved = "saved" (both)        refetched = expand "tokens" (both)
+//! `knapsack ab` — the savings report. Reads Knapsack's metrics.jsonl, computes net token
+//! savings (net = saved − refetched), and reports per-session detail plus an aggregate
+//! total. Honest by construction: sessions that over-expand show a negative net.
 
 use crate::json::{self, Json};
 use std::collections::HashMap;
@@ -34,11 +27,9 @@ impl Agg {
 }
 
 pub struct Report {
-    pub knapsack_total: Agg,
-    pub rucksack_total: Agg,
-    pub knapsack_sessions: Vec<(String, Agg)>,
-    pub knapsack_path: String,
-    pub rucksack_path: String,
+    pub total: Agg,
+    pub sessions: Vec<(String, Agg)>,
+    pub path: String,
 }
 
 fn numk(v: &Json, keys: &[&str]) -> i64 {
@@ -82,8 +73,8 @@ pub fn read(path: &Path) -> (Agg, HashMap<String, Agg>) {
         let e = map.entry(session).or_default();
         match v.get("event").and_then(|x| x.as_str()) {
             Some("compress") => {
-                let raw = numk(&v, &["raw", "orig"]);
-                let shown = numk(&v, &["shown", "comp"]);
+                let raw = numk(&v, &["raw"]);
+                let shown = numk(&v, &["shown"]);
                 let saved = if v.get("saved").is_some() { numk(&v, &["saved"]) } else { raw - shown };
                 let dh = numk(&v, &["delta_hits"]);
                 let ev = numk(&v, &["evicted"]);
@@ -102,17 +93,14 @@ pub fn read(path: &Path) -> (Agg, HashMap<String, Agg>) {
     (total, map)
 }
 
-pub fn compare(knapsack: &Path, rucksack: &Path) -> Report {
-    let (kt, ks) = read(knapsack);
-    let (rt, _rs) = read(rucksack);
-    let mut sessions: Vec<(String, Agg)> = ks.into_iter().collect();
+pub fn build(knapsack: &Path) -> Report {
+    let (total, sessions) = read(knapsack);
+    let mut sessions: Vec<(String, Agg)> = sessions.into_iter().collect();
     sessions.sort_by_key(|s| std::cmp::Reverse(s.1.net())); // best net first
     Report {
-        knapsack_total: kt,
-        rucksack_total: rt,
-        knapsack_sessions: sessions,
-        knapsack_path: knapsack.display().to_string(),
-        rucksack_path: rucksack.display().to_string(),
+        total,
+        sessions,
+        path: knapsack.display().to_string(),
     }
 }
 
@@ -144,22 +132,22 @@ fn short(s: &str, n: usize) -> String {
 
 pub fn format(r: &Report) -> String {
     let mut o = String::new();
-    o.push_str("Knapsack vs Rucksack — net token savings   (net = saved − refetched)\n\n");
+    o.push_str("knapsack — net token savings   (net = saved − refetched)\n\n");
 
-    // per-session (knapsack only — rucksack metrics are sessionless)
-    o.push_str("per session (knapsack)\n");
+    // per-session detail
+    o.push_str("per session\n");
     o.push_str(&format!(
         "{:<20}{:>11}{:>11}{:>10}{:>11}{:>7}{:>7}{:>9}\n",
         "session", "raw", "saved", "refetch", "net", "delta", "evict", "exp(f)"
     ));
     o.push_str(&"─".repeat(86));
     o.push('\n');
-    if r.knapsack_sessions.is_empty() {
+    if r.sessions.is_empty() {
         o.push_str("  (no knapsack data found at ");
-        o.push_str(&r.knapsack_path);
+        o.push_str(&r.path);
         o.push_str(")\n");
     }
-    for (sid, a) in &r.knapsack_sessions {
+    for (sid, a) in &r.sessions {
         o.push_str(&format!(
             "{:<20}{:>11}{:>11}{:>10}{:>11}{:>7}{:>7}{:>9}\n",
             short(sid, 19),
@@ -173,44 +161,30 @@ pub fn format(r: &Report) -> String {
         ));
     }
 
-    // head-to-head aggregate
-    let (kn, ru) = (&r.knapsack_total, &r.rucksack_total);
-    o.push_str("\nhead-to-head (aggregate)\n");
-    o.push_str(&format!("{:<12}{:>10}{:>12}{:>12}{:>12}{:>12}\n", "engine", "compress", "raw", "saved", "refetched", "NET"));
-    o.push_str(&"─".repeat(70));
+    // aggregate total
+    let t = &r.total;
+    o.push_str("\naggregate\n");
+    o.push_str(&format!("{:>10}{:>12}{:>12}{:>12}{:>12}\n", "compress", "raw", "saved", "refetched", "NET"));
+    o.push_str(&"─".repeat(58));
     o.push('\n');
-    let row = |name: &str, a: &Agg| {
-        format!(
-            "{:<12}{:>10}{:>12}{:>12}{:>12}{:>12}\n",
-            name,
-            commafy(a.compress_events),
-            commafy(a.raw),
-            commafy(a.saved),
-            commafy(a.refetched),
-            commafy(a.net())
-        )
-    };
-    o.push_str(&row("rucksack", ru));
-    o.push_str(&row("knapsack", kn));
-    o.push_str(&"─".repeat(70));
+    o.push_str(&format!(
+        "{:>10}{:>12}{:>12}{:>12}{:>12}\n",
+        commafy(t.compress_events),
+        commafy(t.raw),
+        commafy(t.saved),
+        commafy(t.refetched),
+        commafy(t.net())
+    ));
+    o.push_str(&"─".repeat(58));
     o.push('\n');
 
-    let (winner, delta) = if kn.net() >= ru.net() {
-        ("knapsack", kn.net() - ru.net())
+    let verdict = if t.compress_events == 0 {
+        "no data yet — wire the hook, run a session, then re-check"
+    } else if t.net() > 0 {
+        "net POSITIVE — conditional compression is paying off"
     } else {
-        ("rucksack", ru.net() - kn.net())
+        "net NEGATIVE — expanding too much; tune what gets elided"
     };
-    let pct = if ru.net() > 0 {
-        format!("{}% better", (kn.net() - ru.net()) * 100 / ru.net())
-    } else {
-        "n/a (no positive rucksack baseline)".to_string()
-    };
-    o.push_str(&format!("winner: {}   (+{} net tokens, {})\n", winner, commafy(delta), pct));
-
-    if ru.compress_events == 0 {
-        o.push_str(&format!("\nnote: no rucksack data at {} — showing knapsack only.\n", r.rucksack_path));
-    }
-    o.push_str("note: rucksack's metrics carry no session id, so the per-session table is\n");
-    o.push_str("      knapsack-only; the head-to-head above is the apples-to-apples figure.\n");
+    o.push_str(&format!("\nverdict: {}\n", verdict));
     o
 }
