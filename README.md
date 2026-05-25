@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="knapsack_logo.jpg" alt="Knapsack logo" width="240">
+</p>
+
 # 🎒 Knapsack
 
 **Stop paying for output Claude Code has already seen.**
@@ -78,11 +82,12 @@ Knapsack quietly compresses that output as it comes in. When Claude actually nee
 
 | Command | What it does |
 | --- | --- |
-| `knapsack doctor` | Health check — confirms everything is wired up correctly |
+| `knapsack doctor` | Health check — confirms the hook and MCP server point at the same installed binary |
 | `knapsack metrics` | Shows how many tokens you've saved so far |
 | `knapsack uninstall` | Cleanly removes it (add `--purge` to also delete its cache) |
 
 > `knapsack install --apply` (run for you by the installer) is what wires it into Claude Code.
+> If `doctor` ever reports drift, `knapsack install --repair` re-points the hook and MCP server back at the installed binary.
 
 ---
 
