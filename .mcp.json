@@ -1,0 +1,9 @@
+{
+  "//": "Register Knapsack's recall tools with Claude Code. Replace the command with the absolute path to the built binary (knapsack install prints it), or put `knapsack` on PATH.",
+  "mcpServers": {
+    "knapsack": {
+      "command": "knapsack",
+      "args": ["mcp"]
+    }
+  }
+}

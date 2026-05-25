@@ -1,0 +1,14 @@
+# Normalize line endings: LF in the repo for all text, regardless of contributor OS.
+* text=auto eol=lf
+
+# Shell scripts MUST be LF — a CRLF shebang breaks the installer on Linux/macOS.
+*.sh text eol=lf
+
+# Keep everything else LF too, for reproducible builds and clean diffs.
+*.ps1 text eol=lf
+*.rs  text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+*.md  text eol=lf
+*.json text eol=lf
+*.yml text eol=lf

@@ -1,0 +1,76 @@
+name: release
+# Tag a version (git tag v0.0.1 && git push --tags) to build cross-platform binaries,
+# attach checksums + the install scripts, and publish a GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  target: x86_64-unknown-linux-gnu,  kind: unix }
+          - { os: macos-latest,   target: x86_64-apple-darwin,       kind: unix }
+          - { os: macos-latest,   target: aarch64-apple-darwin,      kind: unix }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc,    kind: win  }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Test (host)
+        run: cargo test --release
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: matrix.kind == 'unix'
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czf "knapsack-${{ matrix.target }}.tar.gz" knapsack
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "knapsack-${{ matrix.target }}.tar.gz" > "knapsack-${{ matrix.target }}.tar.gz.sha256"
+          else
+            shasum -a 256 "knapsack-${{ matrix.target }}.tar.gz" > "knapsack-${{ matrix.target }}.tar.gz.sha256"
+          fi
+
+      - name: Package (windows)
+        if: matrix.kind == 'win'
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release
+          Compress-Archive knapsack.exe "knapsack-${{ matrix.target }}.zip" -Force
+          $h = (Get-FileHash "knapsack-${{ matrix.target }}.zip" -Algorithm SHA256).Hash.ToLower()
+          "$h  knapsack-${{ matrix.target }}.zip" | Out-File -Encoding ascii "knapsack-${{ matrix.target }}.zip.sha256"
+
+      - name: Publish to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.tar.gz
+            target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.tar.gz.sha256
+            target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.zip
+            target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.zip.sha256
+
+  scripts:
+    name: install scripts
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Attach install scripts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            install.sh
+            install.ps1

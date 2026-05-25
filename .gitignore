@@ -1,0 +1,21 @@
+# Rust build output
+/target
+*.pdb
+*.exe
+*.rlib
+*.rmeta
+
+# editor / OS cruft
+*.rs.bk
+*.swp
+*.log
+.DS_Store
+Thumbs.db
+
+# Knapsack runtime state + config backups (should never be committed)
+.knapsack/
+.store/
+metrics.jsonl
+*.knapsack-bak-*
+
+# Note: Cargo.lock IS committed (this crate builds a binary).

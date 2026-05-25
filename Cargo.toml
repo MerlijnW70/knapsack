@@ -1,0 +1,29 @@
+[package]
+name = "knapsack"
+version = "0.0.1"
+edition = "2021"
+description = "Conditional token reducer for agents: delta-encodes tool output against a session seen-ledger (H(output|seen)) with a byte-exact recall store. Zero-dependency deterministic core."
+license = "MIT"
+
+[lib]
+name = "knapsack"
+path = "src/lib.rs"
+
+[[bin]]
+name = "knapsack"
+path = "src/main.rs"
+
+[[bench]]
+name = "loop"
+path = "benches/loop.rs"
+harness = false
+
+# Zero external dependencies on purpose: the correctness-critical core compiles to a
+# single tiny static binary with no supply-chain surface. Later, behind stable
+# boundaries: clap (CLI), serde/serde_json (wire), blake3 (native hashing), regex
+# (recall grep), similar (token-level diffs), tree-sitter (syntax-aware blocks).
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
