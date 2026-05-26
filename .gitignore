@@ -18,4 +18,7 @@ Thumbs.db
 metrics.jsonl
 *.knapsack-bak-*
 
+# Claude Code project-local state (permissions, local commands) — user-specific.
+.claude/
+
 # Note: Cargo.lock IS committed (this crate builds a binary).

@@ -12,6 +12,14 @@ fn tmp(tag: &str) -> PathBuf {
     std::env::temp_dir().join(format!("knapsack-stress-{}-{}-{}", tag, std::process::id(), t))
 }
 
+/// The two-char shard prefix the store derives from a handle. Match the store's logic
+/// exactly: the first two hex chars AFTER the `_` separator — works for legacy
+/// `ks_<hex>` (offset 3) and new `ks2_<hex>` (offset 4) alike.
+fn shard(h: &str) -> &str {
+    let i = h.find('_').map(|i| i + 1).unwrap_or(0);
+    &h[i..i + 2]
+}
+
 struct Rng(u64);
 impl Rng {
     fn next(&mut self) -> u64 {
@@ -128,7 +136,7 @@ fn shards_are_well_distributed_on_disk() {
     let slices: Vec<&[u8]> = blocks.iter().map(Vec::as_slice).collect();
     store.put_many(&slices);
     let used_dirs = fs::read_dir(&dir).unwrap().flatten().filter(|e| e.path().is_dir()).count();
-    let distinct_prefixes: HashSet<String> = blocks.iter().map(|b| handle(b)[3..5].to_string()).collect();
+    let distinct_prefixes: HashSet<String> = blocks.iter().map(|b| shard(&handle(b)).to_string()).collect();
     assert!(used_dirs > 128, "expected >128 of 256 shard dirs used, got {used_dirs}");
     assert_eq!(used_dirs, distinct_prefixes.len(), "on-disk shard dirs must match distinct handle prefixes");
 }
@@ -149,7 +157,7 @@ fn corrupted_file_reads_as_missing() {
     let dir = tmp("corrupt");
     let store = Store::new(dir.clone());
     let h = store.put(b"important exact bytes");
-    fs::write(dir.join(&h[3..5]).join(&h), b"TAMPERED").unwrap(); // corrupt the sharded file
+    fs::write(dir.join(shard(&h)).join(&h), b"TAMPERED").unwrap(); // corrupt the sharded file
     assert!(store.get(&h).is_none(), "a corrupted file must read as missing, not wrong bytes");
 }
 
@@ -160,7 +168,7 @@ fn corrupt_shard_falls_back_to_valid_flat() {
     let bytes = b"recoverable content here";
     let h = store.put(bytes); // valid sharded copy
     fs::write(dir.join(&h), bytes).unwrap(); // valid legacy flat copy
-    fs::write(dir.join(&h[3..5]).join(&h), b"GARBAGE").unwrap(); // corrupt the sharded copy
+    fs::write(dir.join(shard(&h)).join(&h), b"GARBAGE").unwrap(); // corrupt the sharded copy
     assert_eq!(store.get(&h).as_deref(), Some(&bytes[..]), "must fall back to the valid flat copy");
 }
 

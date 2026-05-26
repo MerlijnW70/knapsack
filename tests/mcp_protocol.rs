@@ -45,6 +45,16 @@ fn mcp_protocol_conformance_edges() {
     let r = handle_message(r#"{"id":5,"method":"tools/call","params":{"name":"knapsack_expand","arguments":{"handle":123}}}"#).unwrap();
     assert!(r.contains("\"isError\":true"), "numeric handle (wrong type) -> treated as missing, not a panic");
 
+    // expand: 'lines' present but malformed -> isError, not a silent whole-file expand.
+    let r = handle_message(r#"{"id":51,"method":"tools/call","params":{"name":"knapsack_expand","arguments":{"handle":"ks2_0123456789abcdef0123456789abcdef","lines":"garbage"}}}"#).unwrap();
+    assert!(r.contains("\"isError\":true") && r.contains("'lines'"), "malformed lines must isError: {r}");
+    // expand: 'context' present but wrong type -> isError. (Used to silently become 0.)
+    let r = handle_message(r#"{"id":52,"method":"tools/call","params":{"name":"knapsack_expand","arguments":{"handle":"ks2_0123456789abcdef0123456789abcdef","context":"abc"}}}"#).unwrap();
+    assert!(r.contains("\"isError\":true") && r.contains("'context'"), "wrong-typed context must isError: {r}");
+    // expand: 'context' present and negative -> isError. (Used to be clamped to 0 silently.)
+    let r = handle_message(r#"{"id":53,"method":"tools/call","params":{"name":"knapsack_expand","arguments":{"handle":"ks2_0123456789abcdef0123456789abcdef","context":-3}}}"#).unwrap();
+    assert!(r.contains("\"isError\":true") && r.contains("'context'"), "negative context must isError: {r}");
+
     // metrics tool with empty args is fine.
     assert!(handle_message(r#"{"id":6,"method":"tools/call","params":{"name":"knapsack_metrics","arguments":{}}}"#).unwrap().contains("knapsack live stats"));
 

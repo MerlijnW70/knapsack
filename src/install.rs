@@ -375,14 +375,14 @@ pub fn run_checks() -> Vec<Check> {
     c.push(if settings_has_hook(&sp) {
         mk("hook installed", Status::Ok, sp.display().to_string())
     } else {
-        mk("hook installed", Status::Warn, format!("not in {} — run `knapsack install --apply`", sp.display()))
+        mk("hook installed", Status::Warn, format!("not in {} — run `knapsack install`", sp.display()))
     });
     // 5. mcp config present
     let mcp = mcp_config_path();
     c.push(if mcp_has_server(&mcp) {
         mk("MCP configured", Status::Ok, mcp.display().to_string())
     } else {
-        mk("MCP configured", Status::Warn, format!("not in {} — run `knapsack install --apply`", mcp.display()))
+        mk("MCP configured", Status::Warn, format!("not in {} — run `knapsack install`", mcp.display()))
     });
     // 5b. binary provenance: what the hook and MCP are *configured* to launch (the path on
     // disk), plus the binary running THIS doctor. This is on-disk/config provenance, NOT a
@@ -399,7 +399,7 @@ pub fn run_checks() -> Vec<Check> {
         match (bin, s) {
             (Some(p), Some(s)) => mk(label, Status::Ok, format!("{}  (sha {})", p, crate::sha256::short_hex(s))),
             (Some(p), None) => mk(label, Status::Fail, format!("{} — file not found", p)),
-            (None, _) => mk(label, Status::Warn, "not configured — run `knapsack install --apply`".into()),
+            (None, _) => mk(label, Status::Warn, "not configured — run `knapsack install`".into()),
         }
     };
     c.push(prov("hook configured binary", &hook_bin, &hook_sha));
@@ -453,6 +453,21 @@ pub fn run_checks() -> Vec<Check> {
         mk("ab report", Status::Fail, "did not render".into())
     });
 
+    // 9. store metadata coverage — informational. A new install starts at 0/0 and
+    // grows; legacy stores intentionally show low coverage. Never a fail/warn — the
+    // bytes are still byte-exact verifiable via hash::verify even without meta.
+    let store = crate::store::Store::new(crate::config::store_dir());
+    let (total, with_meta) = crate::gc::coverage(&store);
+    c.push(mk(
+        "store metadata",
+        Status::Ok,
+        if total == 0 {
+            "0 blocks · store empty".to_string()
+        } else {
+            format!("{}/{} blocks have .meta sidecars", with_meta, total)
+        },
+    ));
+
     c
 }
 
@@ -479,7 +494,7 @@ pub fn doctor() -> String {
     o.push_str(if fails > 0 {
         "Unhealthy ✗ — fix the failing checks above."
     } else if warns > 0 {
-        "Engine healthy ✓ — but not wired in yet. Run `knapsack install --apply`."
+        "Engine healthy ✓ — but not wired in yet. Run `knapsack install`."
     } else {
         "Healthy ✓ — engine, hook, and MCP are all wired in."
     });
@@ -490,7 +505,7 @@ pub fn doctor() -> String {
 // ---------- install / uninstall ----------
 pub fn apply() -> String {
     let bin = bin_path();
-    let mut o = String::from("knapsack install --apply\n\n");
+    let mut o = String::from("knapsack install\n\n");
 
     // 3. ensure ~/.knapsack
     let _ = fs::create_dir_all(config::store_dir());

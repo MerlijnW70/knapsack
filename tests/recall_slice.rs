@@ -40,11 +40,34 @@ fn line_ranges_inclusive_and_clamped() {
 }
 
 #[test]
-fn grep_is_literal_not_regex() {
+fn grep_is_regex_with_substring_fallback() {
+    // Updated contract: grep is a real (subset) regex — `.` is a metachar. Plain words
+    // still behave like substring search because they have no metacharacters.
     let s = store("grep");
     let h = s.put(b"a.b\naxb\nzzz");
-    // "a.b" as a regex would match "axb"; as a literal it must not.
-    assert_eq!(text(expand(&s, &h, None, Some("a.b"), 0)), "a.b", "grep is a literal substring match");
+
+    // `.` as a regex matches any char → both "a.b" and "axb" match; "zzz" does not.
+    let got = text(expand(&s, &h, None, Some("a.b"), 0));
+    assert!(got.contains("a.b"), "regex `a.b` matches literal `a.b`: {got:?}");
+    assert!(got.contains("axb"), "regex `a.b` matches `axb` via `.`: {got:?}");
+    assert!(!got.contains("zzz"), "non-matching line excluded: {got:?}");
+
+    // Escape `.` to recover literal-only matching.
+    let got = text(expand(&s, &h, None, Some("a\\.b"), 0));
+    assert!(got.contains("a.b"), "escaped `\\.` matches literal `.`: {got:?}");
+    assert!(!got.contains("axb"), "escaped `\\.` does NOT match `x`: {got:?}");
+}
+
+#[test]
+fn grep_falls_back_to_substring_on_unsupported_regex() {
+    // If the pattern uses metacharacters we don't implement (`|`, `()`, `{n,m}`), we
+    // fall back to case-insensitive substring matching so the call doesn't fail
+    // silently. The compiler error is suppressed; the user sees substring semantics.
+    let s = store("grepfallback");
+    let h = s.put(b"alpha\n(grouped)\nbeta");
+    // `(grouped)` as a regex would be a group — unsupported. As substring, it matches.
+    let got = text(expand(&s, &h, None, Some("(grouped)"), 0));
+    assert_eq!(got, "(grouped)", "unsupported regex -> substring fallback");
 }
 
 #[test]
@@ -65,11 +88,41 @@ fn grep_with_context_and_no_match() {
 }
 
 #[test]
-fn grep_then_lines_compose() {
+fn lines_window_first_then_grep_filters_inside() {
+    // Order contract: `--lines A-B` defines a 1-based window into the ORIGINAL line
+    // numbering, and `--grep` filters within that window. If grep applied first
+    // (the old order), the lines index would index into the post-grep vector — a
+    // request like `--lines 50-100 --grep TARGET` against a 200-line file where
+    // only 3 lines match would index a 3-element vec from [49..] and return empty.
+    // This is the regression test for that bug.
     let s = store("compose");
-    let h = s.put(b"keep1\nkeep2\nkeep3\nkeep4");
-    // grep keeps all 4, then lines 2-3 slices the filtered set.
-    assert_eq!(text(expand(&s, &h, Some((2, 3)), Some("keep"), 0)), "keep2\nkeep3");
+    // 10 lines; only 3 contain "MATCH" — at indices 1, 5, 8 (1-based).
+    let h = s.put(b"a\nMATCH-1\nb\nc\nd\nMATCH-2\ne\nf\nMATCH-3\ng");
+
+    // Whole file -> grep gives 3 matches.
+    assert_eq!(text(expand(&s, &h, None, Some("MATCH"), 0)), "MATCH-1\nMATCH-2\nMATCH-3");
+
+    // Window 4-7 selects "c\nd\ne\nMATCH-2". Grep inside should yield ONLY MATCH-2.
+    // Under the OLD order (grep first), this would index a 3-element vec at [3..7]
+    // and return empty.
+    assert_eq!(
+        text(expand(&s, &h, Some((4, 7)), Some("MATCH"), 0)),
+        "MATCH-2",
+        "--lines 4-7 + --grep MATCH must return only the in-window match"
+    );
+
+    // Window 4-7 + grep + context=1 -> MATCH-2 plus its in-window neighbours d, e.
+    assert_eq!(
+        text(expand(&s, &h, Some((4, 7)), Some("MATCH"), 1)),
+        "d\nMATCH-2\ne",
+        "context expands within the line window"
+    );
+
+    // Window that contains no matches returns empty (not a panic, not whole-file).
+    assert_eq!(text(expand(&s, &h, Some((3, 5)), Some("MATCH"), 0)), "", "window with no matches -> empty");
+
+    // Empty post-slice (out-of-range) with grep+context must NOT panic on `n-1`.
+    assert_eq!(text(expand(&s, &h, Some((1000, 2000)), Some("MATCH"), 5)), "", "empty post-slice survives context branch");
 }
 
 #[test]

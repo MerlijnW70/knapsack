@@ -16,6 +16,7 @@ use crate::ledger::{Ledger, Residency};
 use crate::store::Store;
 use crate::structural;
 use crate::token_estimate::{tokens, tokens_bytes};
+use std::collections::HashSet;
 
 pub struct PackResult {
     pub view: String,
@@ -83,9 +84,12 @@ impl Packer<'_> {
         let rs = self.ref_run.first().unwrap().0;
         let re = self.ref_run.last().unwrap().1;
         let h = self.store.put(&self.bytes[rs..re]);
+        // Shorter, plain-ASCII marker that matches the user-facing `[Knapsack: …]` style
+        // from pack_doc. The handle stays visible because Claude IS the consumer of this
+        // text (the hook feeds it back as tool output); hiding `ks_…` here — unlike in
+        // pack_doc's human-readable side-cars — would break recall.
         self.out.push(format!(
-            "⟨knapsack: {} block(s) / {} lines unchanged — already in context · recall {}⟩",
-            self.ref_run.len(),
+            "[Knapsack: {} lines unchanged · recall {}]",
             count_lines(&self.bytes[rs..re]),
             h
         ));
@@ -96,6 +100,21 @@ impl Packer<'_> {
 }
 
 pub fn pack(bytes: &[u8], ct: ContentType, store: &Store, ledger: &mut Ledger, step: u64) -> PackResult {
+    pack_with_transcript(bytes, ct, store, ledger, step, None)
+}
+
+/// `transcript_resident` is the AND-gate set: when `Some(s)`, a handle is only
+/// treated as Resident if it's in `s` AND the ledger agrees. When `None`, the
+/// original ledger-only behaviour applies. This is the safe-fallback contract from
+/// the brief — missing/corrupt transcripts route through the ledger path.
+pub fn pack_with_transcript(
+    bytes: &[u8],
+    ct: ContentType,
+    store: &Store,
+    ledger: &mut Ledger,
+    step: u64,
+    transcript_resident: Option<&HashSet<String>>,
+) -> PackResult {
     let blocks = split_blocks(bytes, ct);
     let nblocks = blocks.len();
 
@@ -115,18 +134,27 @@ pub fn pack(bytes: &[u8], ct: ContentType, store: &Store, ledger: &mut Ledger, s
 
     for &(s, e) in &blocks {
         let bh = handle(&bytes[s..e]);
-        match p.ledger.residency(&bh) {
-            Residency::Resident => {
-                p.flush_new();
-                p.ref_run.push((s, e));
+        let ledger_res = p.ledger.residency(&bh);
+        // Transcript gate: when we have a parsed transcript, a handle counts as
+        // Resident only when it's both ledger-resident AND present in the post-boundary
+        // transcript window. When transcript_resident is None (no transcript provided
+        // or unreadable), this is a no-op and we use ledger-only — the safe fallback.
+        let transcript_says_resident = transcript_resident.map(|set| set.contains(&bh)).unwrap_or(true);
+        let effective_resident = matches!(ledger_res, Residency::Resident) && transcript_says_resident;
+
+        if effective_resident {
+            p.flush_new();
+            p.ref_run.push((s, e));
+        } else {
+            // Account "I thought it was resident but transcript says it's not" the same
+            // way we account ledger-evicted: a re-send instead of a backref. That keeps
+            // metrics honest — the engine paid for re-sending what looked-resident.
+            let downgraded_by_transcript = matches!(ledger_res, Residency::Resident) && !transcript_says_resident;
+            if ledger_res == Residency::Evicted || downgraded_by_transcript {
+                p.evicted_resends += 1;
             }
-            other => {
-                if other == Residency::Evicted {
-                    p.evicted_resends += 1; // seen before but paged out -> re-sent, not backref'd
-                }
-                p.flush_ref();
-                p.new_run.push((s, e));
-            }
+            p.flush_ref();
+            p.new_run.push((s, e));
         }
     }
     p.flush_new();
@@ -162,6 +190,21 @@ pub fn pack(bytes: &[u8], ct: ContentType, store: &Store, ledger: &mut Ledger, s
         }
     } else {
         (conditional_view, conditional_shown, p.delta_hits, p.evicted_resends)
+    };
+
+    // NEVER-WORSE-THAN-RAW guard. The two earlier strategies (conditional delta and stateless)
+    // both add framing — back-ref envelopes, elision markers, headers. On very small or
+    // already-tight outputs (e.g. `cargo build` with no errors, ~60 bytes, ~20 tokens), the
+    // framing exceeds the raw bytes. The user-visible cost is small in absolute terms but the
+    // invariant matters: knapsack should never make tool output *more* expensive than not
+    // running it. If even the better of the two computed views is heavier than raw, fall
+    // through to the raw bytes themselves and zero the delta accounting (no back-ref was
+    // actually emitted to the model). Blocks were stored above, so `reconstruct` is still
+    // byte-exact — this only affects what the model sees, not what `expand` returns.
+    let (view, shown, delta_hits, evicted_resends) = if shown > raw {
+        (String::from_utf8_lossy(bytes).into_owned(), raw, 0, 0)
+    } else {
+        (view, shown, delta_hits, evicted_resends)
     };
 
     PackResult {

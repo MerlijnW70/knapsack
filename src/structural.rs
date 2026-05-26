@@ -109,7 +109,121 @@ pub fn compress(bytes: &[u8], start: usize, end: usize, ct: ContentType) -> (Str
     match ct {
         ContentType::Code => compress_code(bytes, start, end),
         ContentType::Log => compress_log(bytes, start, end),
+        ContentType::Json => compress_json(bytes, start, end),
     }
+}
+
+/// Cold-pass compression for JSON: each top-level member kept verbatim when small,
+/// or replaced by `"<key>": [Knapsack: ~N tokens · recall ks2_…]` when large. The
+/// elided bytes go in the store under their own handle so `knapsack expand` returns
+/// the exact original member. Falls back to verbatim if the input doesn't split into
+/// useful tiles (malformed JSON, root scalar, single tile).
+fn compress_json(bytes: &[u8], start: usize, end: usize) -> (String, Vec<Elision>) {
+    use crate::block::split_json;
+    if end <= start {
+        return (String::new(), Vec::new());
+    }
+    // Split the sub-range exactly the way pack.rs's block layer did. Tiles here are
+    // RELATIVE to `start`; we'll add `start` back when storing elisions so they index
+    // into the ORIGINAL bytes (Elision.start/end are absolute by contract).
+    let region_len = end - start;
+    let region = &bytes[start..end];
+    let tiles_rel = split_json(region);
+    if tiles_rel.len() <= 1 {
+        // Nothing useful to split; emit verbatim. Cold-pass falls back to "view == raw"
+        // and the never-worse-than-stateless guard in pack.rs handles the rest.
+        return (lossy_string(region), Vec::new());
+    }
+
+    // Per-member elision threshold. A member smaller than this is cheaper to ship
+    // verbatim than to round-trip a marker + handle (which costs ~30–50 tokens).
+    const KEEP_BYTES: usize = 240;
+
+    let mut out = String::new();
+    let mut elisions: Vec<Elision> = Vec::new();
+    let last = tiles_rel.len() - 1;
+
+    for (i, &(rs, re)) in tiles_rel.iter().enumerate() {
+        let abs_s = start + rs;
+        let abs_e = start + re;
+        let tile = &bytes[abs_s..abs_e];
+        let is_framing_open = i == 0;
+        let is_framing_close = i == last
+            || (i == last - 1 && tile.len() == 1 && matches!(tile[0], b'}' | b']'));
+        // Framing tiles (the opening `{`/`[`, the closing `}`/`]`, and any trailing
+        // whitespace) always pass through verbatim — they're tiny and necessary for
+        // the view to look like JSON.
+        if is_framing_open || is_framing_close {
+            out.push_str(&lossy_string(tile));
+            continue;
+        }
+        // Interior tile: a top-level member with optional leading whitespace and
+        // optional trailing comma. Decide keep vs elide on the trimmed length.
+        let lead = lead_ws(tile);
+        let payload_len = tile.len().saturating_sub(lead);
+        if payload_len <= KEEP_BYTES {
+            out.push_str(&lossy_string(tile));
+            continue;
+        }
+        // Large member: store exact bytes, emit marker. Try to extract the key name
+        // so the lossy view stays scannable — "dependencies" omitted reads better
+        // than an anonymous marker.
+        let h = handle(tile);
+        elisions.push(Elision { handle: h.clone(), start: abs_s, end: abs_e });
+        let key = extract_member_key(&tile[lead..]);
+        let toks = tokens(&String::from_utf8_lossy(tile));
+        let trailing_comma = tile.last() == Some(&b',');
+        // Preserve the leading whitespace so the view's indentation looks like JSON.
+        out.push_str(&lossy_string(&tile[..lead]));
+        match key {
+            Some(k) => out.push_str(&format!(
+                "\"{k}\": [Knapsack: section omitted · ~{toks} tokens · recall {h}]{c}",
+                c = if trailing_comma { "," } else { "" },
+            )),
+            None => out.push_str(&format!(
+                "[Knapsack: section omitted · ~{toks} tokens · recall {h}]{c}",
+                c = if trailing_comma { "," } else { "" },
+            )),
+        }
+    }
+
+    let _ = region_len;
+    (out, elisions)
+}
+
+fn lossy_string(b: &[u8]) -> String {
+    String::from_utf8_lossy(b).into_owned()
+}
+
+fn lead_ws(tile: &[u8]) -> usize {
+    let mut i = 0;
+    while i < tile.len() && matches!(tile[i], b' ' | b'\t' | b'\r' | b'\n') {
+        i += 1;
+    }
+    i
+}
+
+/// Pull `key` out of a `"key": …` tile body (leading whitespace already skipped). None
+/// if the tile doesn't start with a quoted string — common for array elements and
+/// malformed shapes; the caller falls back to an anonymous marker.
+fn extract_member_key(body: &[u8]) -> Option<String> {
+    if body.first() != Some(&b'"') {
+        return None;
+    }
+    let mut i = 1;
+    let mut escape = false;
+    while i < body.len() {
+        let c = body[i];
+        if escape {
+            escape = false;
+        } else if c == b'\\' {
+            escape = true;
+        } else if c == b'"' {
+            return std::str::from_utf8(&body[1..i]).ok().map(str::to_string);
+        }
+        i += 1;
+    }
+    None
 }
 
 fn compress_code(bytes: &[u8], start: usize, end: usize) -> (String, Vec<Elision>) {
@@ -130,7 +244,9 @@ fn compress_code(bytes: &[u8], start: usize, end: usize) -> (String, Vec<Elision
         let body_bytes = &bytes[bstart..bend];
         let body_str = String::from_utf8_lossy(body_bytes);
         let h = handle(body_bytes);
-        let marker = format!("⟨body: {} lines{} — expand {}⟩", run.len(), body_hint(&body_str), h);
+        // Match pack.rs / pack_doc style: plain ASCII brackets, capital K, `recall` not
+        // `expand` (consistent vocabulary across all elision markers).
+        let marker = format!("[Knapsack: {}-line body{} · recall {}]", run.len(), body_hint(&body_str), h);
         if run.len() >= MIN_RUN && tokens(&body_str) > tokens(&marker) {
             elisions.push(Elision { handle: h, start: bstart, end: bend });
             out.push(marker);
@@ -155,10 +271,73 @@ fn compress_code(bytes: &[u8], start: usize, end: usize) -> (String, Vec<Elision
     (out.join("\n"), elisions)
 }
 
+/// True when a log line is a likely diagnostic anchor — the kind of line a user reads
+/// FIRST when staring at noisy test/build output. Catches generic keywords plus the
+/// specific framings that compilers and test runners actually print. Each new family
+/// has a test fixture in `tests/log_anchors.rs`; if you add one here, add the fixture.
 fn important(t: &str) -> bool {
     let l = t.to_lowercase();
+    let tt = t.trim_start();
+    let lt = l.trim_start();
+
+    // 1. Generic severity keywords + visual markers (original set).
     const W: [&str; 8] = ["error", "warn", "fail", "panic", "exception", "fatal", "denied", "refused"];
-    W.iter().any(|w| l.contains(w)) || t.contains('✗') || t.contains('❌') || t.contains('●')
+    if W.iter().any(|w| l.contains(w)) {
+        return true;
+    }
+    if t.contains('✗') || t.contains('❌') || t.contains('●') {
+        return true;
+    }
+
+    // 2. Python tracebacks. The `Traceback (most recent call last):` header is the
+    //    anchor; the per-frame `File "x.py", line N, in fn` lines locate the crash.
+    //    Neither contains a severity keyword, so both would otherwise be elided.
+    if lt.starts_with("traceback (most recent call last)") {
+        return true;
+    }
+    if lt.starts_with("file \"") && lt.contains("\", line ") {
+        return true;
+    }
+
+    // 3. Node.js stack frames: `    at functionName (path/to/file.js:12:34)` or the
+    //    bare `at path:line:col`. Same anchor logic — no severity word, but every
+    //    debug session needs them visible.
+    if tt.starts_with("at ") && tt.contains(':') {
+        return true;
+    }
+
+    // 4. Java/JVM/Gradle. "Caused by:" introduces nested exceptions; Gradle prints
+    //    "* What went wrong:" / "* Try:" sections; ":task FAILED" is already caught by
+    //    "fail", but the `BUILD FAILED` summary lives at the top of the line.
+    if lt.starts_with("caused by:") || tt.starts_with("* What went wrong") || tt.starts_with("* Try:") {
+        return true;
+    }
+
+    // 5. npm prints `npm ERR! …` (note the `!`) and `npm WARN …`. The `ERR!` token
+    //    on its own does not contain "error", so the generic list misses it.
+    if l.contains("npm err!") || l.contains("npm warn") {
+        return true;
+    }
+
+    // 6. TypeScript `tsc` diagnostics: `path/to/file.ts(12,34): error TS1234: …`.
+    //    "error TS" / "warning TS" is the discriminator. Caught by "error" today, but
+    //    keep it as an explicit anchor so a future severity-word trim doesn't break it.
+    if l.contains(": error ts") || l.contains(": warning ts") {
+        return true;
+    }
+
+    // 7. Rust diagnostic codes: `error[E0XXX]: …`, `warning: unused variable …`.
+    //    Already caught by "error"/"warn", but `error[E…]` is a strong anchor and
+    //    listing it makes the intent legible to future readers of this function.
+    if lt.starts_with("error[e") {
+        return true;
+    }
+
+    // 8. Bazel: `ERROR: /path/BUILD:1:2: …` — caught by "error".
+    //    pytest summary `FAILED tests/x.py::test_foo` — caught by "fail".
+    //    Listed only as comments; no extra check needed.
+
+    false
 }
 
 fn compress_log(bytes: &[u8], start: usize, end: usize) -> (String, Vec<Elision>) {
@@ -187,11 +366,11 @@ fn compress_log(bytes: &[u8], start: usize, end: usize) -> (String, Vec<Elision>
         .take(LOG_MAX_KEY)
         .collect();
     if !keys.is_empty() {
-        view.push("⟨key lines:⟩".to_string());
+        view.push("[Knapsack: key lines from the elided middle]".to_string());
         view.extend(keys);
     }
     view.push(format!(
-        "⟨elided {} lines (~{} tok) — expand {}⟩",
+        "[Knapsack: {} lines elided · ~{} tok · recall {}]",
         mid.len(),
         tokens(&String::from_utf8_lossy(mid_bytes)),
         h

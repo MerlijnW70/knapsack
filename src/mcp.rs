@@ -19,7 +19,7 @@ use std::io::{BufRead, Write};
 const PROTOCOL: &str = "2024-11-05";
 // Single source of truth: tracks Cargo.toml's version, so the MCP handshake can't drift.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const INSTRUCTIONS: &str = "Knapsack recall: the PreToolUse hook compresses noisy command output and leaves ks_... handles. \
+const INSTRUCTIONS: &str = "Knapsack recall: the PreToolUse hook compresses noisy command output and leaves ks2_<hex> handles (legacy ks_<hex> from older stores still works). \
 Use the compact view first — it keeps errors, signatures, and structure, which is usually enough. \
 When you must recall, expand only the slice you need: knapsack_expand(handle, {lines:\"40-60\"}) or {grep:\"pattern\", context:2}. \
 Pulling a whole region back spends the tokens the hook just saved (knapsack_metrics shows net_saved go negative if you over-expand). \
@@ -85,11 +85,15 @@ fn tools() -> Json {
     Json::Arr(vec![
         tool(
             "knapsack_expand",
-            "Restore content behind a Knapsack recall handle (ks_...). Returns the full region by default (byte-exact); pass `lines` (e.g. \"40-60\") or `grep` to recall only the slice you need, which costs fewer tokens. `context` adds N lines around each grep match.",
+            "Restore content behind a Knapsack recall handle (`ks2_<32 hex>`, or legacy `ks_<10|16 hex>` from older stores). Returns the full region by default (byte-exact); pass `lines` (e.g. \"40-60\") or `grep` to recall only the slice you need, which costs fewer tokens. `context` adds N lines around each grep match.",
             vec![
-                prop("handle", "string", "A knapsack handle, e.g. ks_7e1680c08c"),
+                prop("handle", "string", "A knapsack handle, e.g. ks2_0123456789abcdef0123456789abcdef (legacy ks_… still accepted)"),
                 prop("lines", "string", "Optional 1-based inclusive range, e.g. \"40-60\""),
-                prop("grep", "string", "Optional case-insensitive pattern; only matching lines"),
+                prop(
+                    "grep",
+                    "string",
+                    "Optional case-insensitive regex (subset: . * + ? ^ $ [class] \\d \\w \\s and negations). Plain words still work — unsupported metacharacters fall back to substring match.",
+                ),
                 prop("context", "number", "Lines of context to include around each grep match (default 0)"),
             ],
             &["handle"],
@@ -97,7 +101,11 @@ fn tools() -> Json {
         tool(
             "knapsack_inspect",
             "Show metadata about a handle (bytes, lines, estimated tokens, whether it's UTF-8) plus a short preview, WITHOUT dumping the full content. Use it to decide whether — and how much — to expand.",
-            vec![prop("handle", "string", "A knapsack handle, e.g. ks_7e1680c08c")],
+            vec![prop(
+                "handle",
+                "string",
+                "A knapsack handle, e.g. ks2_0123456789abcdef0123456789abcdef (legacy ks_… still accepted)",
+            )],
             &["handle"],
         ),
         tool(
@@ -113,10 +121,6 @@ fn tools() -> Json {
 fn arg_str(args: Option<&Json>, key: &str) -> Option<String> {
     args.and_then(|a| a.get(key)).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
-fn arg_num(args: Option<&Json>, key: &str) -> Option<f64> {
-    args.and_then(|a| a.get(key)).and_then(|v| v.as_f64())
-}
-
 fn call_tool(id: Option<Json>, name: &str, args: Option<&Json>) -> String {
     match name {
         "knapsack_expand" => {
@@ -124,11 +128,51 @@ fn call_tool(id: Option<Json>, name: &str, args: Option<&Json>) -> String {
                 Some(h) => h,
                 None => return text_result(id, "knapsack_expand: 'handle' is required".into(), true),
             };
+            if !crate::hash::is_valid_handle(&handle) {
+                return text_result(
+                    id,
+                    format!(
+                        "knapsack_expand: invalid handle: {} (expected ks2_<32 hex> or legacy ks_<10|16 hex>)",
+                        crate::hash::display_handle(&handle)
+                    ),
+                    true,
+                );
+            }
+            // Parse numeric/range fields up front. If the caller passed `lines` or
+            // `context` but the value was garbage (string for context, malformed range
+            // for lines), surface that as an isError result instead of silently
+            // expanding the whole file / using zero context.
+            let range = match arg_str(args, "lines").as_deref() {
+                None => None,
+                Some(s) => match parse_range(s) {
+                    Some(r) => Some(r),
+                    None => {
+                        return text_result(
+                            id,
+                            format!("knapsack_expand: 'lines' expects A-B (1-based inclusive), got: {}", crate::hash::display_handle(s)),
+                            true,
+                        );
+                    }
+                },
+            };
+            let context: usize = match args.and_then(|a| a.get("context")) {
+                None => 0,
+                Some(v) => match v.as_f64() {
+                    Some(n) if n.is_finite() && n >= 0.0 => n as usize,
+                    _ => {
+                        return text_result(
+                            id,
+                            "knapsack_expand: 'context' expects a non-negative number".into(),
+                            true,
+                        );
+                    }
+                },
+            };
             let req = ExpandRequest {
                 handle: handle.clone(),
-                range: arg_str(args, "lines").as_deref().and_then(parse_range),
+                range,
                 grep: arg_str(args, "grep"),
-                context: arg_num(args, "context").unwrap_or(0.0).max(0.0) as usize,
+                context,
                 session_id: "mcp".into(),
             };
             match expand_handle(req) {
@@ -145,6 +189,16 @@ fn call_tool(id: Option<Json>, name: &str, args: Option<&Json>) -> String {
                 Some(h) => h,
                 None => return text_result(id, "knapsack_inspect: 'handle' is required".into(), true),
             };
+            if !crate::hash::is_valid_handle(&handle) {
+                return text_result(
+                    id,
+                    format!(
+                        "knapsack_inspect: invalid handle: {} (expected ks2_<32 hex> or legacy ks_<10|16 hex>)",
+                        crate::hash::display_handle(&handle)
+                    ),
+                    true,
+                );
+            }
             let store = Store::new(config::store_dir());
             match store.get(&handle) {
                 None => text_result(id, format!("No such handle: {}", handle), true),

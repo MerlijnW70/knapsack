@@ -5,8 +5,305 @@ All notable changes to Knapsack are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Read hook (input reduction) is now on by default** after `knapsack install`.
+  Previously gated behind `KNAPSACK_READ_HOOK=1` and labelled EXPERIMENTAL. The
+  hook keeps its safety contract — never mutates the original file, passes through
+  on any uncertainty (missing/unreadable/slicing reads, files outside the 8 KB–4 MB
+  band), refuses to redirect if the compressed view doesn't beat raw by ≥25%, logs
+  every decision so `knapsack why-last` can explain it — and a new off-switch is
+  available: set `KNAPSACK_READ_HOOK=0` (or `off`/`false`/`no`) to disable. The
+  product position is now "Input + Output reduction are both active after one
+  install" instead of "Input is a dogfood spike behind an env var".
+
+- **Bare `knapsack install` now applies in one shot** (wires the hook + MCP into
+  Claude Code). Previously it printed manual settings.json instructions and
+  required `--apply` to actually do anything. `--apply` is still accepted as an
+  explicit alias; `--print` keeps the old paste-it-yourself form for users who
+  prefer to edit configs by hand.
+
+- **`/knapsack` (status) surface redesigned for product use.** No env-var jargon,
+  no EXPERIMENTAL / dogfood labels, no actions laundry list. The new shape:
+
+  ```
+  Knapsack active
+
+  Input reduction:  active
+  Output reduction: active
+  Session saved:    12,840 tokens
+  Net reduction:    74%
+  Recall:           healthy
+  Store:            381 blocks / 2.4 MB
+  ```
+
+  The technical breakdown (binary sha drift, smoke tests, MCP protocol check,
+  store metadata coverage) lives under `/knapsack doctor`.
+
+### Fixed
+
+- **`pack -` (tool-output path) now respects the never-worse-than-raw invariant.**
+  On very small or already-tight outputs (e.g. `cargo build` clean with no errors,
+  ~60 bytes, ~20 tokens) the back-reference envelope was bigger than the raw bytes
+  themselves, leaving `shown_tokens_est` higher than `raw_tokens_est` and saved
+  going negative. The fix in `pack::pack_with_transcript`: if neither the
+  conditional-delta nor the stateless view beats raw, emit the raw bytes
+  themselves and zero the delta accounting. Blocks are still stored, so
+  `reconstruct(...)` stays byte-exact — only what the model SEES changes. Pinned
+  by `pack_never_emits_more_tokens_than_raw` in `tests/token_reduction.rs`.
+
+- **All numeric CLI/MCP flags now reject garbage loudly** instead of silently
+  using a default. Same shape audit fixed five sites: `gc --older-than`,
+  `expand --context`, `expand --lines`, the `why-last N` positional, and the MCP
+  `knapsack_expand` arguments `lines` and `context`. Present-but-unparseable now
+  exits 2 (or returns `isError: true` for MCP) with a clear message naming the
+  flag and the offending value; absent uses the documented default; valid is
+  used as-is. Pinned by `tests/cli_numeric_flags.rs` (12 tests) and three new
+  MCP cases in `tests/mcp_protocol.rs`.
+
+- **Invalid-handle error messages are bounded** in length. A megabyte-sized
+  hostile handle (CLI typo or MCP client bug) no longer produces a megabyte-sized
+  echo in stderr / JSON-RPC reply. New `hash::display_handle()` caps the echo at
+  64 chars and annotates the total length. Applied at all four echo sites (CLI
+  `expand` / `inspect`, MCP `knapsack_expand` / `knapsack_inspect`, `gc
+  --older-than`). Pinned by `hash::tests::display_handle_truncates_oversized_input`.
+
+- **`tests/read_hook.rs` race condition resolved.** Multiple tests set the same
+  process-global env vars (`KNAPSACK_READ_CACHE` / `KNAPSACK_READ_LOG`) and ran
+  in parallel under cargo's default test runner, so siblings clobbered each
+  other's cache dir mid-call. Failures showed up as cross-test path comparisons
+  (e.g. a `cachehit` test asserting equality between paths from a `gate` test
+  and a `worse` test). Fix: an `EnvGuard` RAII type that locks a static Mutex
+  for the duration of the env override and restores the prior values on drop.
+  Zero new dependencies (the project's no-dep policy still holds). All 12
+  read-hook tests now pass in the default parallel mode, 5 runs in a row.
+
+- **Unit test `decide_passes_through_when_gate_disabled`** used `decide(&evt)`
+  which reads the gate from the process env. With `KNAPSACK_READ_HOOK=1` set in
+  the shell (and now with the default-on flip), it would assert the wrong reason.
+  Switched to `decide_with_gate(false, &evt)` to make the test deterministic
+  regardless of the runtime environment.
+
+- **Code block splitting now boundary-aware** instead of blank-line-only. Blocks
+  open at column-0 top-level **definitions** (`fn`/`pub fn`/`async fn`,
+  `function`/`async function`/`export …function`, `class`/`export class`,
+  `interface`/`type`/`enum`, `struct`/`trait`/`impl`/`mod`, Python `def`/`async
+  def`/`class`, `macro_rules!`, …). A block runs from one definition to the
+  next, so:
+  - A function with INTERNAL blank lines (paragraph breaks inside its body) is
+    now one block. The old splitter fragmented these into 3+ tiny blocks, which
+    made one-line edits invalidate too many blocks.
+  - Multiple top-level functions become **separate** blocks — edits stay
+    local. Pinned by `one_function_edit_only_invalidates_that_block`.
+  - Python classes hold their indented methods (column-4+ `def`s are NOT
+    boundaries — only column-0 ones).
+  - Preamble (doc comments, imports, attributes before the first definition)
+    is its own block.
+  - **Fallback preserved**: code with no recognisable definitions (minified
+    bundles, single-statement scripts) routes through the historical
+    blank-line splitter — never worse than before. Pinned by
+    `minified_code_with_no_definitions_falls_back_to_blank_line_split`.
+  - Detection is zero-dep keyword matching at column 0; a tree-sitter pass
+    behind a feature flag is the obvious next step but not needed for this
+    patch.
+  - Existing bench (`knapsack bench`) is essentially flat
+    (4,385 → 4,377 tokens) — the synthetic fixture already had clean
+    function boundaries. The improvement shows up on real codebases with
+    internal blank lines, where the old splitter created many tiny blocks
+    that fragmented the delta cache.
+
 ### Added
 
+- **JSON-aware compression.** New `ContentType::Json` recognises `.json` files,
+  `package.json` / `tsconfig.json` / `package-lock.json` / `composer.json` /
+  `jsconfig.json` / `tsconfig.base.json` by name, and any input ≤256 KB whose first
+  non-whitespace byte is `{` or `[` AND parses as JSON. Malformed JSON falls back
+  to the Log heuristic — never claims a malformed file is JSON.
+  - **Quote/escape/depth-aware tile splitter** (`block::split_json`): splits at
+    top-level member boundaries with a single pass. Each `"key": …,` (or array
+    element) becomes one tile; framing braces/brackets become their own tiny tiles.
+    Tiles cover [0, len) byte-exact so `reconstruct(...) == bytes` keeps holding.
+    Any malformation (unterminated string, missing close, root scalar) safely
+    returns a single tile.
+  - **Cold-pass compressor** (`structural::compress_json`): each top-level member
+    larger than 240 bytes is replaced by `"<key>": [Knapsack: section omitted ·
+    ~N tokens · recall ks2_…]`, with the **key name preserved** so the lossy view
+    stays scannable. Each elision's exact bytes go in the byte-exact store under
+    its own handle — `knapsack expand <handle>` returns the original member.
+  - **Delta on key paths**: a one-field edit (e.g. `"version": "0.0.1"` →
+    `"0.0.2"`) invalidates only the tile carrying that key. Other top-level keys
+    keep their bytes → back-reference. Measured: 9/10 blocks back-ref on a real
+    package.json version bump.
+  - **Never-worse-than-raw guard** unchanged — applies to JSON the same way.
+  - **Secrets contract**: no new logging sinks for JSON content. The byte-exact
+    store still receives bytes (same as every other pack); `metrics.jsonl` and
+    `read_hook.jsonl` see counts, not content. Pinned by
+    `secrets_in_json_are_not_logged_anywhere_new`.
+
+### Added (experimental)
+
+- **Read hook spike** — `KNAPSACK_READ_HOOK=1` gated, default OFF. When enabled,
+  PreToolUse Read events are inspected and (for files in the 8 KB – 4 MB band that
+  compress meaningfully) `file_path` is rewritten at a cached compressed view in
+  `~/.knapsack/read_cache/<sha256>.md`. The original file is never touched; Claude
+  can still read it directly or recall via `knapsack expand <handle>`. Source:
+  `src/read_hook.rs`. **Do not enable in production until live acceptance is
+  green** — see the dogfood guide in README.
+- **Structured pass-through logging** (`src/why_log.rs`) — every Read decision
+  appends one JSONL line to `~/.knapsack/read_hook.jsonl` with a stable reason
+  code: `gate-disabled`, `bad-input`, `slicing-requested`, `file-unreadable`,
+  `too-small`, `too-large`, `file-changed`, `worse-than-raw`, `redirect-emitted`,
+  `cache-hit`. Reserved-but-not-yet-wired: `not-resident`, `no-transcript-proof`,
+  `updated-input-rejected`. Forward-compat: unknown reasons in the log are
+  silently skipped by the reader.
+- **`knapsack why-last [N]`** debug command — prints the last N Read-hook
+  decisions (default 10). Each line: reason · bytes · path · token before→after
+  · note. The dogfood feedback channel.
+- **`knapsack gc` cleans the read cache** — read-cache files share the same
+  age-based cleanup as the store, tallied in `read_cache_scanned` /
+  `read_cache_deleted` in the report so you can see the experimental cache's
+  contribution.
+- **`knapsack status` reflects the gate** — shows `✓ read hook (EXPERIMENTAL)`
+  when `KNAPSACK_READ_HOOK=1` is set in the current shell, otherwise the
+  default off-state line with the env-var hint.
+
+### Added
+
+- **Transcript-driven residency.** The hook now passes Claude Code's
+  `transcript_path` through to `pack`, and `pack_with_transcript` intersects the
+  ledger's notion of "resident" with the set of handles the transcript proves
+  are still in the context window AFTER the most recent boundary. Closes the
+  dangling-backref bug where the ledger thought content was still in context
+  but `/clear` (or compaction) had wiped it. Source: `src/transcript.rs`,
+  `src/pack.rs::pack_with_transcript`, hook plumbing in `src/hook.rs`.
+  - **Boundaries detected**: a `/clear` user command (raw-text and structured
+    forms), compaction events (`type` = `compact`/`compaction`/`compacted`/
+    `compact_complete`), session restart (`type` = `session_start`/
+    `session_restart`/`session_reset`/`restart`). All case-insensitive on the
+    label; raw-text fallback for shapes we don't yet parse.
+  - **Safe fallback**: missing or unreadable `transcript_path` → `ok: false`
+    → caller drops the gate → ledger-only behaviour, identical to before
+    this change. Corrupt JSONL lines are skipped per-line, not fatally.
+  - **Wins where ledger lied**: when the transcript proves a handle is gone,
+    the engine treats the block as evicted — emits a fresh structural view
+    instead of an "already in context" backref. The never-worse-than-stateless
+    guard still applies, so fragmented partial-residency runs route through
+    the stateless compressor when that's smaller.
+  - **`knapsack transcript <path>`** debug subcommand: prints status
+    (enabled/disabled), lines scanned, last boundary detected (`/clear`,
+    compaction, session restart) with line number, and up to 5 sample
+    resident handles. Use this to answer "why did Knapsack treat handle X
+    as not-resident?".
+- **Per-block metadata sidecars for `ks2_` writes.** Each new block now has a
+  companion `<handle>.meta` JSON sidecar in the same shard directory carrying:
+  full 64-hex SHA-256 (the safety belt behind the 128-bit handle prefix), exact
+  byte length, `created_at`, `last_accessed`, and optional `ct` / `source` /
+  `session` / `project` fields. The block file IS still the bytes — sidecar is
+  pure metadata, never load-bearing for content. Source: `src/meta.rs`.
+  - **Verify-on-read is now three-layer.** `Store::get` first checks the meta
+    sidecar (length THEN full SHA-256) when present; falls back to the existing
+    `hash::verify` (truncated-prefix) when meta is missing; either way a
+    mismatch reads as None. The byte-exact-or-None invariant is preserved across
+    the upgrade — legacy stores keep working with no behavior change.
+  - **`last_accessed` is touched on successful reads, debounced to 60 s** so a
+    hot block doesn't pay a write per `get`. Touch failures (read-only mounts,
+    etc.) are silently swallowed — meta is a hint, never on the critical path.
+- **`knapsack gc [--older-than DAYS] [--dry-run]`** — drop cold blocks from the
+  store. Uses `meta.last_accessed` when available, falls back to filesystem
+  mtime for legacy blocks. Always deletes block + sidecar as a pair via
+  `Store::delete` — never leaves half a pair behind. `--dry-run` reports what
+  would happen without touching the filesystem. Default threshold: 30 days.
+- **`doctor` gains an informational `store metadata` line** showing
+  `<with_meta>/<total>` block coverage. Never fail/warn — it's a roadmap signal
+  that grows as legacy stores get exercised and re-packed.
+
+### Changed
+
+- **Handle format is now `ks2_<32 hex>` (128-bit truncated SHA-256).** Legacy
+  `ks_<10 hex>` (40-bit SHA-1) and `ks_<16 hex>` (64-bit SHA-1) are still **read**
+  — old stores keep working, recall is byte-exact for both formats — but every
+  new write produces `ks2_`. The `2` in the prefix is a format-version tag so a
+  future bump (blake3, longer truncation) can ship as `ks3_` additively.
+  - **Store verify-on-read routes by handle format** (`hash::verify`): legacy
+    handles re-hash with SHA-1, new handles with SHA-256. The "byte-exact-or-None"
+    invariant survives the format bump — a corrupted file still reads as None
+    under either algorithm.
+  - **Store sharding is now prefix-aware**: shard chars are the first two hex of
+    the hash regardless of prefix (`s.find('_')`-based), so `ks2_<hex>` and
+    `ks_<hex>` shard identically and the existing 256-bucket distribution holds.
+  - **Strict handle validation** (`hash::is_valid_handle`) at every public
+    boundary — `knapsack expand`, `knapsack inspect`, MCP `knapsack_expand`,
+    MCP `knapsack_inspect`. Malformed input gets a clear "invalid handle" reject
+    instead of a misleading "no such handle".
+  - **MCP tool descriptions and instructions** now show the `ks2_` example
+    explicitly and note that legacy `ks_…` handles still resolve.
+  - **Per-marker overhead grew by ~7 tokens** because the inline handle is now
+    36 chars instead of 13. The pack_doc marker-overhead test budget moved from
+    50 → 60 tokens to reflect this; benchmark net savings dropped from −94% to
+    −92% vs raw (12k vs 14k tokens over the A/B/C session, depending on the
+    fixture) — a defensible price for cryptographic safety margin and a
+    versioned format.
+  - **No behaviour change anywhere else.** Pack, recall, structural compression,
+    the conditional layer, MCP wire format — all unchanged outside handle
+    rendering and verification.
+
+### Added
+
+- **Tool-output markers unified with the `pack_doc` style.** The hook's compact view
+  now uses the same `[Knapsack: …]` brackets as side-cars, with consistent vocabulary
+  (`recall` everywhere, never `expand` in user-facing text). Old `⟨knapsack: 3 block(s) /
+  42 lines unchanged — already in context · recall ks_abc⟩` becomes the much shorter
+  `[Knapsack: 42 lines unchanged · recall ks_abc]`. Body and log-middle markers shifted
+  the same way. The handle stays visible (unlike in `pack_doc`'s human-readable files):
+  the hook's output IS fed back to Claude as tool output, and Claude needs the handle to
+  call `knapsack_expand`. Source: `src/pack.rs::flush_ref`, `src/structural.rs`.
+- **Anchors for compiler / test-runner output.** `important()` in the log compressor now
+  recognises framings that previously slipped through the `error/warn/fail/panic` net:
+  Python tracebacks + `File "x.py", line N` frames, Node stack frames (`    at fn
+  (file:line:col)`), `Caused by:` (JVM), Gradle `* What went wrong:` / `* Try:`, `npm
+  ERR!` (note the `!`), TypeScript `error TS` / `warning TS`, and Rust `error[E…]`
+  diagnostic codes. Each family is pinned by a fixture in `tests/log_anchors.rs` that
+  buries the anchor stanza in the middle of a long log and asserts it survives elision.
+- **Real (subset) regex for `knapsack_expand(grep: …)`.** New zero-dep `src/regex.rs`
+  supports literals, `.`, greedy `* + ?`, line anchors `^` and `$`, character classes
+  including ranges and negation, and shorthand classes `\d \w \s` plus negations. Plain
+  words still behave like substring search (no metachars, no change). Patterns that use
+  unsupported metacharacters (`|`, `()`, `{n,m}`) fall back transparently to the old
+  case-insensitive substring path, so existing callers keep working. MCP `grep`
+  description updated to declare the subset.
+- **Human-readable packed views.** The elision marker is now a short, jargon-free banner
+  with the recall metadata moved into a trailing HTML comment that's invisible in
+  rendered markdown:
+
+      [Knapsack: section omitted · ~178 tokens · exact recall available] <!-- ks-recall handle=ks_… lines=A-B tokens=178 -->
+
+  No `ks_…` hashes leak into what a reader sees. Pinned by tests
+  (`visible_marker_is_human_readable_and_has_no_hashes`, `marker_overhead_per_elision_stays_modest`).
+- **`knapsack inspect <packed-file>`** — power-user view of a `.knapsack.md` side-car.
+  Parses the embedded manifest + every recall marker and prints a per-section index with
+  the exact `knapsack expand <handle> --lines A-B` invocation for each. The historic
+  `knapsack inspect <handle>` form still works; dispatch is by whether the arg is an
+  existing file. Source: `src/pack_doc.rs::parse_packed`, `src/main.rs::run_inspect_doc`.
+- **`knapsack pack <file>`** — explicit, opt-in **context-file** packing. Reads a
+  markdown/text document, stores the byte-exact original in the recall store, and writes
+  a markdown-aware compact view to a side-car `<name>.knapsack.md`. Preserves headings,
+  code fences, blockquotes, lists, and short paragraphs; replaces only long prose blocks
+  (single line ≥500 chars OR ≥3 lines AND ≥300 chars) with the markers described above.
+  - Safety contract: never mutates the original file; refuses to write when the packed
+    view is not smaller (override with `--force`); `--dry-run` writes nothing and just
+    reports what would happen; `--output <path>` overrides the default side-car location.
+  - Stdin form is unchanged: `knapsack pack -` is still the hook's pipeline pack
+    (`pack.rs` / `api::pack_output`). The two paths share only the byte-exact store.
+  - Source: `src/pack_doc.rs`; CLI wiring: `src/main.rs` (`run_pack_doc`).
+- **`knapsack status`** (and the `/knapsack` Claude Code slash command) — a compact,
+  product-facing summary that answers four user questions at a glance: is Knapsack active,
+  what did this session save, is recall healthy, and what does the store cost? It's the
+  default when `knapsack` is run with no arguments, and is intentionally short and
+  non-technical — `knapsack doctor` keeps the long-form diagnostic. Surfaces recall
+  failures as a warning (with a pointer to `doctor`), shows net savings (not gross), and
+  emits a lifetime footer only when there's more than one session of history (so a single
+  active session isn't double-billed). Source: `src/status.rs`; Claude Code wiring:
+  `.claude/commands/knapsack.md`.
 - **`knapsack install --repair`** — force-converges the Claude Code hook **and** the MCP server
   onto the canonical installed binary (`current_exe`), backing up each config first, printing the
   canonical SHA-256, emitting safe User-PATH guidance, and ending with a full `doctor` run.

@@ -88,7 +88,9 @@ fn adversarial_inputs_reconstruct_exact() {
     let store = Store::new(store_dir("adv"));
     let mut ledger = Ledger::in_memory();
 
-    let glyph_line = "⟨knapsack: 99 block(s) / 5 lines unchanged — already in context · recall ks_deadbeef⟩\n";
+    // A literal-looking knapsack backref marker among the byte stream — the marker text
+    // must not poison tiling/reconstruction (we never special-case our own output).
+    let glyph_line = "[Knapsack: 5 lines unchanged · recall ks_deadbeef]\n";
     let cases: Vec<Vec<u8>> = vec![
         b"".to_vec(),                                   // empty
         b"\n".to_vec(),                                 // lone newline

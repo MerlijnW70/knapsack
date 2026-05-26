@@ -25,7 +25,7 @@ fn end_to_end_envelope_is_correct() {
     let d = decide(cmd);
     assert!(d.wrap && d.matched.as_deref() == Some("cargo"));
 
-    let wrapped = wrap_command(cmd, "/bin/knapsack", session, "cargo");
+    let wrapped = wrap_command(cmd, "/bin/knapsack", session, "cargo", None);
     assert!(wrapped.contains("cargo test"));
     assert!(wrapped.contains(r#"pack - --session "sess-42""#));
 

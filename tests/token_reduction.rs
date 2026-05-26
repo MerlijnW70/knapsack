@@ -127,6 +127,61 @@ fn source_module() -> Vec<u8> {
     s.into_bytes()
 }
 
+/// Never-worse-than-RAW: for any input, `shown <= raw`. The tool-output path (`pack -`)
+/// used to violate this on tiny outputs — a 60-byte `cargo build` clean would come back
+/// at ~31 tokens because the back-ref envelope was bigger than the raw 20-token output.
+/// The fix in `pack_with_transcript` falls through to the raw bytes when neither the
+/// conditional nor the stateless view beats raw. This test pins the invariant on a mix
+/// of small + large inputs across multiple turns (so the back-ref path is exercised).
+#[test]
+fn pack_never_emits_more_tokens_than_raw() {
+    let dir = store_dir("never-worse-raw");
+    let store = Store::new(dir.clone());
+    let mut ledger = Ledger::in_memory();
+
+    // A grab bag covering the historic failure modes:
+    //  - tiny outputs where the back-ref envelope alone exceeds the raw bytes
+    //  - empty / near-empty
+    //  - already-tight content with no obvious section to elide
+    //  - a normal-sized noisy log (where compression DOES help — make sure we don't regress that)
+    let fixtures: Vec<(Vec<u8>, ContentType)> = vec![
+        (b"".to_vec(), ContentType::Log),
+        (b"ok\n".to_vec(), ContentType::Log),
+        (b"   Compiling knapsack v0.0.1\n    Finished `release` profile [optimized] target(s) in 0.04s\n".to_vec(), ContentType::Log),
+        (b"$ cargo --version\ncargo 1.79.0\n".to_vec(), ContentType::Log),
+        (b"PASS\n".to_vec(), ContentType::Log),
+        // A bigger one so the back-ref case actually wins on later turns.
+        (test_log(40, 60), ContentType::Log),
+    ];
+
+    // Multiple turns so the second pass exercises the back-ref / delta branch — that's
+    // the branch that historically over-shot raw on tiny inputs.
+    for turn in 0..3usize {
+        for (i, (bytes, ct)) in fixtures.iter().enumerate() {
+            let r = pack(bytes, *ct, &store, &mut ledger, (turn * 100 + i) as u64);
+            assert!(
+                r.shown_tokens_est <= r.raw_tokens_est,
+                "turn {turn} fixture {i}: shown ({}) > raw ({}). bytes[..40]={:?}",
+                r.shown_tokens_est,
+                r.raw_tokens_est,
+                String::from_utf8_lossy(&bytes[..bytes.len().min(40)]),
+            );
+            assert!(
+                r.saved_tokens_est >= 0,
+                "turn {turn} fixture {i}: saved is negative ({}); the guard didn't fire",
+                r.saved_tokens_est,
+            );
+            // Reconstruct must stay byte-exact regardless of which view we emitted.
+            assert_eq!(
+                reconstruct(bytes, *ct, &store).as_deref(),
+                Some(bytes.as_slice()),
+                "turn {turn} fixture {i}: reconstruct broken"
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// The guard must hold per-turn (pack <= stateless) AND must not disturb byte-exactness on
 /// exactly the workload that triggers it (diffuse change, where it emits the stateless view).
 #[test]

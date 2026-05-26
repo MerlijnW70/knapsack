@@ -70,34 +70,244 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
     hay.len() >= needle.len() && hay.windows(needle.len()).any(|w| w == needle)
 }
 
+/// Top-level object/array members of a JSON document → contiguous byte tiles. Walks
+/// the bytes ONCE with a state machine that tracks string/escape state and brace/bracket
+/// depth, so a `{` inside a string or a `]` inside a nested object doesn't fool the
+/// boundary detector. Tiles cover [0, len) exactly; on any malformation (unterminated
+/// string, missing close, root is a scalar, etc.) returns a single tile so reconstruct
+/// stays byte-exact — never lossy in the splitter.
+pub fn split_json(bytes: &[u8]) -> Vec<(usize, usize)> {
+    let n = bytes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let single = vec![(0usize, n)];
+
+    // 1. Find the opening `{` or `[` at top level (skip leading whitespace only).
+    let mut i = 0usize;
+    while i < n && matches!(bytes[i], b' ' | b'\t' | b'\r' | b'\n') {
+        i += 1;
+    }
+    if i == n || !matches!(bytes[i], b'{' | b'[') {
+        return single;
+    }
+    let open_pos = i;
+
+    // 2. Walk from just after the open, recording top-level member boundaries.
+    let mut tiles: Vec<(usize, usize)> = Vec::new();
+    let mut last_boundary = open_pos + 1;
+    let mut depth: i32 = 1;
+    let mut in_string = false;
+    let mut escape_next = false;
+    let mut pos = open_pos + 1;
+
+    while pos < n {
+        let c = bytes[pos];
+        if escape_next {
+            escape_next = false;
+            pos += 1;
+            continue;
+        }
+        if in_string {
+            match c {
+                b'\\' => escape_next = true,
+                b'"' => in_string = false,
+                _ => {}
+            }
+            pos += 1;
+            continue;
+        }
+        match c {
+            b'"' => in_string = true,
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    // Close of root. Tail tile = [last_boundary, pos] then the close.
+                    if pos > last_boundary {
+                        tiles.push((last_boundary, pos));
+                    }
+                    tiles.push((pos, pos + 1));
+                    pos += 1;
+                    if pos < n {
+                        // Any trailing content (newline, whitespace) is one final tile.
+                        tiles.push((pos, n));
+                    }
+                    // Prepend the header tile for [0..open_pos+1] (leading whitespace + `{`/`[`).
+                    let mut out = Vec::with_capacity(tiles.len() + 1);
+                    out.push((0, open_pos + 1));
+                    out.extend(tiles);
+                    return out;
+                }
+            }
+            b',' if depth == 1 => {
+                // End of a top-level member; the comma travels with the leaving tile.
+                tiles.push((last_boundary, pos + 1));
+                last_boundary = pos + 1;
+            }
+            _ => {}
+        }
+        pos += 1;
+    }
+
+    // Unterminated — safe fallback.
+    single
+}
+
+/// Lines (already left-trimmed at byte 0) that open a top-level definition. Column-0
+/// is the hard requirement — `def foo` at column 4 is a method inside a class, not a
+/// boundary. Each keyword must be followed by a separator (` `, `\t`, `(`, `<`, `:`,
+/// `{`) so identifier-prefixed lookalikes like `function_x = ...` don't false-match.
+fn is_definition_start(line: &[u8]) -> bool {
+    if line.is_empty() || matches!(line[0], b' ' | b'\t') {
+        return false;
+    }
+    // Strip trailing CR/LF to make `kw` checks simpler.
+    let mut end = line.len();
+    while end > 0 && matches!(line[end - 1], b'\n' | b'\r') {
+        end -= 1;
+    }
+    let l = match std::str::from_utf8(&line[..end]) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    // Order matters only for performance — longer keywords first so we don't accept
+    // `pub fn` as just `pub`. Each entry is (prefix, allowed_separators_after).
+    const KW: &[&str] = &[
+        // Rust
+        "pub async fn ",
+        "pub async fn(",
+        "pub fn ",
+        "pub fn(",
+        "pub struct ",
+        "pub enum ",
+        "pub trait ",
+        "pub mod ",
+        "pub type ",
+        "pub const ",
+        "pub static ",
+        "async fn ",
+        "fn ",
+        "fn(",
+        "impl ",
+        "impl<",
+        "struct ",
+        "enum ",
+        "trait ",
+        "mod ",
+        "macro_rules!",
+        // JS / TS — `export`-prefixed first so they don't get stolen by `export `.
+        "export default function ",
+        "export default function(",
+        "export default async function ",
+        "export default class ",
+        "export default abstract class ",
+        "export async function ",
+        "export function ",
+        "export function(",
+        "export class ",
+        "export abstract class ",
+        "export interface ",
+        "export type ",
+        "export enum ",
+        "abstract class ",
+        "async function ",
+        "function ",
+        "function(",
+        "function*",
+        "class ",
+        "interface ",
+        "type ",
+        "enum ",
+        // Python
+        "async def ",
+        "def ",
+        "class ",
+    ];
+    for kw in KW {
+        if l.starts_with(kw) {
+            // Already-followed-by-separator by construction (each entry ends in one
+            // of the separator chars), so a bare `let foo = 1` won't match `let `.
+            return true;
+        }
+    }
+    false
+}
+
+/// Existing behaviour preserved as the fallback for code that doesn't have any
+/// recognisable definitions (minified bundles, single-statement scripts, REPL dumps).
+fn split_code_by_blank_lines(bytes: &[u8], lines: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    let mut blocks = Vec::new();
+    let mut bstart: Option<usize> = None;
+    let mut last_end = 0usize;
+    for &(s, e) in lines {
+        if bstart.is_none() {
+            bstart = Some(s);
+        }
+        last_end = e;
+        if line_is_blank(bytes, s, e) {
+            blocks.push((bstart.take().unwrap(), e));
+        }
+    }
+    if let Some(bs) = bstart {
+        blocks.push((bs, last_end));
+    }
+    if blocks.is_empty() {
+        blocks.push((0, bytes.len()));
+    }
+    blocks
+}
+
 /// Partition into tiling byte-range blocks. Sum of ranges == [0, len).
 pub fn split_blocks(bytes: &[u8], ct: ContentType) -> Vec<(usize, usize)> {
+    if matches!(ct, ContentType::Json) {
+        return split_json(bytes);
+    }
     let lines = split_lines(bytes);
     if lines.is_empty() {
         return Vec::new();
     }
     match ct {
-        // Code: close a block after each blank line (the separator stays attached), so
-        // one function/section = one block and editing it moves only that block's hash.
+        // Code: split at column-0 top-level *definitions* (`fn`, `function`, `class`,
+        // `def`, `impl`, …) so a function with INTERNAL blank lines stays one block.
+        // The previous "split on every blank line" rule fragmented those into many
+        // tiny blocks; per-blank fragmentation also made minor edits invalidate way
+        // more blocks than necessary. Definition boundaries align blocks with the
+        // unit a human edits, so edit→test delta locality is restored to the
+        // intuitive "one edited function == one changed block". For code with no
+        // recognisable definitions (minified bundles, etc.), we fall back to the
+        // historical blank-line split — never worse than before, sometimes much
+        // better. The detection is keyword-based (zero-dep); tree-sitter behind a
+        // feature flag is the obvious next step but not needed for this patch.
         ContentType::Code => {
-            let mut blocks = Vec::new();
-            let mut bstart: Option<usize> = None;
-            let mut last_end = 0usize;
-            for &(s, e) in &lines {
-                if bstart.is_none() {
-                    bstart = Some(s);
-                }
-                last_end = e;
-                if line_is_blank(bytes, s, e) {
-                    blocks.push((bstart.take().unwrap(), e));
+            // Collect boundary line indices.
+            let mut bounds: Vec<usize> = Vec::new();
+            for (i, &(s, e)) in lines.iter().enumerate() {
+                if is_definition_start(&bytes[s..e]) {
+                    bounds.push(i);
                 }
             }
-            if let Some(bs) = bstart {
-                blocks.push((bs, last_end));
+            // No definitions found at all → minified / dense / non-source-like code.
+            // The historical blank-line behaviour is the safest answer there.
+            if bounds.is_empty() {
+                return split_code_by_blank_lines(bytes, &lines);
             }
-            if blocks.is_empty() {
-                blocks.push((0, bytes.len()));
+            // The preamble (anything before the first definition: doc comments,
+            // imports, attributes) is its own block — unless the first definition
+            // starts at line 0, in which case there's nothing to prepend.
+            if bounds.first() != Some(&0) {
+                bounds.insert(0, 0);
             }
+            let mut blocks = Vec::with_capacity(bounds.len());
+            for w in bounds.windows(2) {
+                let s = lines[w[0]].0;
+                let e = lines[w[1]].0;
+                if e > s {
+                    blocks.push((s, e));
+                }
+            }
+            let last = *bounds.last().unwrap();
+            blocks.push((lines[last].0, bytes.len()));
             blocks
         }
         // Log/test output: CONTENT-DEFINED line groups. A new block opens at a stable
@@ -105,6 +315,9 @@ pub fn split_blocks(bytes: &[u8], ct: ContentType) -> Vec<(usize, usize)> {
         // no anchor is capped at LOG_CHUNK lines. Boundaries follow content, so a header
         // line inserted/removed at the top shifts only its own block — unchanged
         // test-output blocks keep identical bytes and keep deduping.
+        // ContentType::Json is handled at the top of this function — `match` here is
+        // only reached for Code/Log, but exhaustiveness still wants the arm.
+        ContentType::Json => unreachable!("Json handled above"),
         ContentType::Log => {
             let mut blocks = Vec::new();
             let mut bstart: Option<usize> = None;

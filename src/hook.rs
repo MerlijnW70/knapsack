@@ -210,17 +210,28 @@ pub fn decide(cmd: &str) -> Decision {
 /// Build the shell command Claude Code will run instead: run the original, capture its
 /// exit code to a temp file, merge stderr, pipe through `knapsack pack -`, re-raise the
 /// code. Portable bash/POSIX sh; mktemp'd + trap-cleaned (ported from Rucksack).
-pub fn wrap_command(cmd: &str, bin: &str, session: &str, prog: &str) -> String {
+///
+/// `transcript_path` is appended as `--transcript "..."` when present; the packer uses
+/// it to gate "already in context" backrefs against the live transcript (so /clear
+/// can't leave dangling backrefs). Empty/None means "no transcript-driven gating" —
+/// the safe-fallback contract from the brief, identical to behaviour before this
+/// argument existed.
+pub fn wrap_command(cmd: &str, bin: &str, session: &str, prog: &str, transcript_path: Option<&str>) -> String {
     let inner = cmd.trim_end_matches([';', ' ']);
+    let transcript_arg = match transcript_path {
+        Some(p) if !p.trim().is_empty() => format!(" --transcript \"{}\"", p),
+        _ => String::new(),
+    };
     format!(
         "__kn=$(mktemp 2>/dev/null || echo \"${{TMPDIR:-/tmp}}/kn_ec.$$\") ; \
          trap 'rm -f \"$__kn\"' EXIT INT TERM ; \
-         {{ {inner} ; echo $? > \"$__kn\" ; }} 2>&1 | \"{bin}\" pack - --session \"{session}\" --cmd \"{prog}\" ; \
+         {{ {inner} ; echo $? > \"$__kn\" ; }} 2>&1 | \"{bin}\" pack - --session \"{session}\" --cmd \"{prog}\"{transcript_arg} ; \
          exit \"$(cat \"$__kn\" 2>/dev/null || echo 0)\"",
         inner = inner,
         bin = bin,
         session = session,
-        prog = prog
+        prog = prog,
+        transcript_arg = transcript_arg,
     )
 }
 
@@ -255,8 +266,16 @@ pub fn run_hook() {
         Ok(v) => v,
         Err(_) => return,
     };
-    if evt.get("tool_name").and_then(|v| v.as_str()) != Some("Bash") {
-        return;
+    // Dispatch on tool_name. Bash drives output reduction; Read drives input reduction
+    // (both gated inside their own modules — Read can be disabled with KNAPSACK_READ_HOOK=0
+    // as an off-switch). Anything else passes through unchanged — fail-open contract preserved.
+    match evt.get("tool_name").and_then(|v| v.as_str()) {
+        Some("Bash") => {}
+        Some("Read") => {
+            crate::read_hook::run(&evt);
+            return;
+        }
+        _ => return,
     }
     let tool_input = match evt.get("tool_input") {
         Some(t) => t,
@@ -275,7 +294,11 @@ pub fn run_hook() {
         Err(_) => return,
     };
     let session = session_key(&evt);
-    let wrapped = wrap_command(&cmd, &bin, &session, dec.matched.as_deref().unwrap_or(""));
+    // transcript_path is optional in the PreToolUse payload (older Claude Code builds
+    // may not include it). We pass through whatever we got and let pack treat the
+    // missing/unreadable case as "no gating" — see api::pack_output + transcript::scan.
+    let transcript_path = evt.get("transcript_path").and_then(|v| v.as_str());
+    let wrapped = wrap_command(&cmd, &bin, &session, dec.matched.as_deref().unwrap_or(""), transcript_path);
 
     let mut obj = match tool_input {
         Json::Obj(o) => o.clone(),
@@ -315,9 +338,26 @@ mod tests {
     }
     #[test]
     fn wrap_command_shape() {
-        let w = wrap_command("cargo test", "/path/knapsack", "sess-1", "cargo");
+        let w = wrap_command("cargo test", "/path/knapsack", "sess-1", "cargo", None);
         assert!(w.contains("cargo test"));
         assert!(w.contains("\"/path/knapsack\" pack - --session \"sess-1\""));
         assert!(w.contains("exit "));
+        assert!(!w.contains("--transcript"), "no transcript -> no flag");
+    }
+
+    #[test]
+    fn wrap_command_passes_transcript_flag_when_present() {
+        let w = wrap_command(
+            "cargo test",
+            "/path/knapsack",
+            "sess-1",
+            "cargo",
+            Some("/tmp/cc-transcript.jsonl"),
+        );
+        assert!(
+            w.contains("--transcript \"/tmp/cc-transcript.jsonl\""),
+            "transcript path flows through into the pack invocation:\n{}",
+            w
+        );
     }
 }
