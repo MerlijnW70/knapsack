@@ -26,8 +26,131 @@ use knapsack::{config, hook, metrics};
 use std::io::{Read, Write};
 use std::process::exit;
 
+/// Look up a flag's value, accepting BOTH common forms users reach for:
+///   `--name VALUE`   (space-separated — GNU long-option-with-arg convention)
+///   `--name=VALUE`   (equals-separated — the form clap/getopt/most CLIs accept)
+///
+/// Before this accepted both forms, only the space form parsed; `--name=value`
+/// matched no exact arg and the entire invocation fell through to whatever
+/// default the caller used. The silent failure surfaced first on `--session=mysess`
+/// — packs landed in the default `cli` session, polluting per-session metrics
+/// with no warning — but every flag in the CLI surface was equally affected:
+/// --lines, --grep, --context, --cmd, --type, --transcript, --output,
+/// --older-than, --knapsack. Accepting both forms uniformly is what every
+/// reflexive `--foo=bar` user expects.
+///
+/// First-match-wins is preserved (both forms participate equally in the scan),
+/// so behavior of a single-occurrence flag is unchanged; the only change is
+/// that `--name=value` now resolves instead of silently going missing.
 fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
-    args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).map(|s| s.as_str())
+    let eq_prefix = format!("{name}=");
+    for (i, a) in args.iter().enumerate() {
+        if a == name {
+            return args.get(i + 1).map(|s| s.as_str());
+        }
+        if let Some(v) = a.strip_prefix(&eq_prefix) {
+            return Some(v);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::flag;
+
+    fn av(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn space_form_returns_next_arg() {
+        let args = av(&["pack", "-", "--session", "foo", "--cmd", "cargo"]);
+        assert_eq!(flag(&args, "--session"), Some("foo"));
+        assert_eq!(flag(&args, "--cmd"), Some("cargo"));
+    }
+
+    #[test]
+    fn equals_form_returns_suffix() {
+        let args = av(&["pack", "-", "--session=foo", "--cmd=cargo"]);
+        assert_eq!(flag(&args, "--session"), Some("foo"));
+        assert_eq!(flag(&args, "--cmd"), Some("cargo"));
+    }
+
+    #[test]
+    fn mixed_forms_in_same_invocation() {
+        // Users may mix forms within a single invocation; both must resolve.
+        let args = av(&["pack", "-", "--session=mysess", "--cmd", "cargo"]);
+        assert_eq!(flag(&args, "--session"), Some("mysess"));
+        assert_eq!(flag(&args, "--cmd"), Some("cargo"));
+    }
+
+    #[test]
+    fn equals_with_empty_value_returns_empty_string() {
+        // `--session=` deliberately returns Some(""), mirroring how the space
+        // form behaves when the user wrote `--session ""` (explicit empty).
+        // Callers that reject empty values do so on the returned Some("") —
+        // this helper does not pre-validate the semantic.
+        let args = av(&["--session="]);
+        assert_eq!(flag(&args, "--session"), Some(""));
+    }
+
+    #[test]
+    fn missing_flag_returns_none() {
+        let args = av(&["--other", "x"]);
+        assert_eq!(flag(&args, "--session"), None);
+    }
+
+    #[test]
+    fn space_form_missing_value_returns_none() {
+        // `--session` as the last arg with nothing after returns None — same
+        // pre-fix behavior preserved. Caller falls back to its default.
+        let args = av(&["pack", "-", "--session"]);
+        assert_eq!(flag(&args, "--session"), None);
+    }
+
+    #[test]
+    fn does_not_match_prefix_of_other_flag() {
+        // `--session-other=x` must not match `--session`. The `=` in the
+        // prefix string (`--session=`) is what enforces an exact name boundary.
+        let args = av(&["--session-other=x"]);
+        assert_eq!(flag(&args, "--session"), None);
+        let args2 = av(&["--sessions=x"]);
+        assert_eq!(flag(&args2, "--session"), None);
+    }
+
+    #[test]
+    fn first_occurrence_wins_regardless_of_form() {
+        // Same flag passed twice — first wins, matching pre-fix behavior.
+        // Both forms participate equally in the scan order.
+        let args1 = av(&["--session", "first", "--session=second"]);
+        assert_eq!(flag(&args1, "--session"), Some("first"));
+        let args2 = av(&["--session=first", "--session", "second"]);
+        assert_eq!(flag(&args2, "--session"), Some("first"));
+    }
+
+    #[test]
+    fn equals_in_value_is_preserved() {
+        // `strip_prefix` removes only the FIRST `--name=` occurrence, so any
+        // `=` that appears INSIDE the value (e.g. a connection string, a
+        // base64 padding char, a KEY=VAL pair) survives verbatim.
+        let args = av(&["--cmd=key=val=more"]);
+        assert_eq!(flag(&args, "--cmd"), Some("key=val=more"));
+        let args2 = av(&["--transcript=C:/path=odd/file.jsonl"]);
+        assert_eq!(flag(&args2, "--transcript"), Some("C:/path=odd/file.jsonl"));
+    }
+
+    #[test]
+    fn space_form_with_value_starting_with_dash_still_returns_it() {
+        // `--session --apply` — the helper returns the literal next arg, even
+        // if it looks like another flag. This is the existing contract; callers
+        // (e.g. session id validators) are responsible for rejecting nonsense
+        // values. Pinning here so a future "skip the next arg if it starts
+        // with --" cleverness doesn't sneak in and break callers that pass
+        // values like `--session -unusual-but-valid-id`.
+        let args = av(&["--session", "--apply"]);
+        assert_eq!(flag(&args, "--session"), Some("--apply"));
+    }
 }
 
 fn read_file(path: &str) -> Vec<u8> {
