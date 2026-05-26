@@ -203,33 +203,43 @@ impl Store {
     /// corrupt sharded copy still falls back to a valid flat one. New writes are always
     /// sharded; old flat files are left untouched and migrate as content is repacked.
     ///
-    /// VERIFY-ON-READ — three-layer belt, hardest-first:
-    ///   1. If a `.meta` sidecar exists, check `meta.matches(bytes)` — that's `len` THEN
-    ///      full 64-hex SHA-256, the cryptographic safety margin behind the 128-bit
-    ///      handle prefix.
-    ///   2. If no sidecar (legacy block, or a ks2 block written before meta shipped),
-    ///      fall back to `hash::verify` — SHA-1 truncated to 10/16 hex for legacy
-    ///      `ks_…`, SHA-256 truncated to 32 hex for `ks2_…`.
-    ///   3. Either way, a mismatch reads as None — corruption can't silently violate
-    ///      the byte-exact guarantee.
+    /// VERIFY-ON-READ — handle commitment ALWAYS, meta as extra strength:
+    ///   1. `hash::verify(handle, bytes)` ALWAYS runs first. The handle's truncated
+    ///      prefix (128-bit SHA-256 for ks2_, truncated SHA-1 for legacy ks_) is a
+    ///      cryptographic commitment to the ORIGINAL bytes. If this fails, the bytes
+    ///      on disk are not what the handle promised — reject regardless of meta state.
+    ///   2. IF a `.meta` sidecar exists, additionally check `meta.matches(bytes)` —
+    ///      that's `len` then full 64-hex SHA-256. Strengthens the 128-bit handle
+    ///      prefix to a full 256-bit commitment.
+    ///   3. Both checks must pass for the bytes to be returned.
+    ///
+    /// Pre-fix bug: meta was used as a REPLACEMENT for hash::verify. An attacker (or
+    /// filesystem corruption) producing a self-consistent meta+block pair where meta
+    /// validated the corrupted bytes could BYPASS the handle's commitment and serve
+    /// wrong bytes for the handle. Now meta is purely additive — it strengthens but
+    /// never replaces the handle's cryptographic commitment. Pinned by
+    /// `both_corrupt_returns_none` in tests/store_corruption.rs.
     ///
     /// On a successful sharded read, `last_accessed` is touched (debounced) so `gc`
     /// can age out cold blocks.
     pub fn get(&self, h: &Handle) -> Option<Vec<u8>> {
         for (idx, p) in [self.path(h), self.flat_path(h)].iter().enumerate() {
             let Ok(bytes) = fs::read(p) else { continue };
-            let meta_p = meta::meta_path(p);
-            let verified = if let Some(m) = meta::read(&meta_p) {
-                m.matches(&bytes)
-            } else {
-                verify(h, &bytes)
-            };
-            if !verified {
+            // Handle commitment first — the truncated prefix is what the API uses to
+            // identify the block, so it MUST hold. If bytes don't match the handle,
+            // we have no business returning them no matter what meta claims.
+            if !verify(h, &bytes) {
                 continue;
             }
-            // Touch only when we're on the sharded path (idx 0) AND meta exists. The
-            // legacy flat path is intentionally read-only; corruption on the sharded
-            // side doesn't reach here either because we already `continue`d.
+            // Meta (when present) is purely additional belt — it must agree.
+            let meta_p = meta::meta_path(p);
+            if let Some(m) = meta::read(&meta_p) {
+                if !m.matches(&bytes) {
+                    continue;
+                }
+            }
+            // Touch only on the sharded path (idx 0). The legacy flat path is
+            // intentionally read-only; we never bump access times there.
             if idx == 0 {
                 meta::touch_last_accessed(&meta_p, LAST_ACCESS_DEBOUNCE_SECS);
             }
