@@ -134,14 +134,25 @@ fn apply_hook(root: &mut Json, bin: &str) -> bool {
     changed
 }
 fn remove_hook(root: &mut Json) -> bool {
+    let mut changed = false;
     if let Some(hooks) = get_mut(root, "hooks") {
         if let Some(Json::Arr(a)) = get_mut(hooks, "PreToolUse") {
             let before = a.len();
             a.retain(|e| !entry_is_knapsack(e));
-            return a.len() != before;
+            changed = a.len() != before;
+        }
+        // After removing our entry, prune any empty scaffolding we may have created:
+        // empty PreToolUse array → drop the key, empty hooks object → drop the key.
+        // Without this, a clean `install` → `uninstall` cycle leaves
+        // `{"hooks":{"PreToolUse":[]}}` lying in the file instead of restoring the
+        // pre-install shape. Only prunes EMPTY containers — anything else (e.g.
+        // unrelated Edit hooks) is preserved verbatim.
+        if changed {
+            prune_empty_array(hooks, "PreToolUse");
+            prune_empty_object(root, "hooks");
         }
     }
-    false
+    changed
 }
 
 // ---------- mcp entry (mcpServers.knapsack) ----------
@@ -179,26 +190,128 @@ fn apply_mcp(root: &mut Json, bin: &str) -> bool {
     }
 }
 fn remove_mcp(root: &mut Json) -> bool {
+    let mut changed = false;
     if let Some(Json::Obj(o)) = get_mut(root, "mcpServers") {
         let before = o.len();
         o.retain(|(k, _)| k != "knapsack");
-        return o.len() != before;
+        changed = o.len() != before;
     }
-    false
+    // Drop the empty `mcpServers: {}` scaffold so a clean install/uninstall round-trip
+    // leaves the file as close to its pre-install state as we can manage. Only prunes
+    // when the object is fully empty — preserving any unrelated MCP servers the user
+    // installed alongside knapsack.
+    if changed {
+        prune_empty_object(root, "mcpServers");
+    }
+    changed
+}
+
+/// Remove an object-valued key from `parent` iff its value is an empty object `{}`.
+/// No-op for missing keys, non-object values, or non-empty objects.
+fn prune_empty_object(parent: &mut Json, key: &str) {
+    let Some(Json::Obj(o)) = get_mut(parent, key) else { return };
+    if !o.is_empty() {
+        return;
+    }
+    if let Json::Obj(parent_obj) = parent {
+        parent_obj.retain(|(k, _)| k != key);
+    }
+}
+
+/// Remove an array-valued key from `parent` iff its value is an empty array `[]`.
+fn prune_empty_array(parent: &mut Json, key: &str) {
+    let Some(Json::Arr(a)) = get_mut(parent, key) else { return };
+    if !a.is_empty() {
+        return;
+    }
+    if let Json::Obj(parent_obj) = parent {
+        parent_obj.retain(|(k, _)| k != key);
+    }
 }
 
 // ---------- file patching with backup ----------
 fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
+
+/// Find a non-colliding backup filename and copy the file there. Returns the chosen
+/// path on success.
+///
+/// Why this loops: `now_secs()` is 1-second resolution and a user (or test) running
+/// `install` → `uninstall` → `install` in fast succession would otherwise land all
+/// backups on the same filename — every later one CLOBBERING the earlier. A user
+/// who hits a bad config and retries would silently lose the only rollback target
+/// for the original good config. The loop walks `_2`, `_3`, … until it finds a
+/// free name. Bounded by `MAX` so a pathological filesystem can't spin forever;
+/// at 1000 retries we give up and return None (caller surfaces "no backup" — same
+/// shape as a non-existent source file).
 fn backup(path: &Path) -> Option<PathBuf> {
-    if path.exists() {
-        let b = PathBuf::from(format!("{}.knapsack-bak-{}", path.display(), now_secs()));
-        if fs::copy(path, &b).is_ok() {
-            return Some(b);
+    if !path.exists() {
+        return None;
+    }
+    const MAX: u32 = 1000;
+    let secs = now_secs();
+    for n in 0..MAX {
+        let candidate = if n == 0 {
+            PathBuf::from(format!("{}.knapsack-bak-{}", path.display(), secs))
+        } else {
+            PathBuf::from(format!("{}.knapsack-bak-{}_{}", path.display(), secs, n + 1))
+        };
+        if candidate.exists() {
+            continue;
         }
+        if fs::copy(path, &candidate).is_ok() {
+            return Some(candidate);
+        }
+        return None;
     }
     None
+}
+
+/// Strip a UTF-8 BOM (U+FEFF) if present. Many real-world editors and shells write
+/// JSON config files with a BOM — PowerShell 5.1's default `Set-Content -Encoding utf8`,
+/// Notepad's UTF-8 save, some IDE auto-encoders — and our strict in-tree JSON parser
+/// rejects the BOM with an opaque `unexpected Some('\u{feff}')` error. Stripping the
+/// BOM here lets us patch those files in place without ever surfacing the technical
+/// detail to a user who would have no idea what `\u{feff}` means. We normalize on
+/// write (the patched file is serialized fresh as BOM-less UTF-8), which is the
+/// modern de-facto standard that Claude Code and every other consumer of these files
+/// already handles.
+fn strip_bom(s: &str) -> &str {
+    s.strip_prefix('\u{feff}').unwrap_or(s)
+}
+
+/// Render an engine-level parse / IO error as a sentence a non-technical user can act on.
+/// The raw `json::parse` error names a character offset and an unexpected token; that's
+/// useful when debugging but worse than useless to a Windows user opening a one-line
+/// installer for the first time. Map the small set of failures we actually see in the
+/// wild to actionable phrasing; pass anything else through verbatim so we don't lose
+/// information the engineer would need.
+fn humanize_patch_error(path: &Path, raw: &str) -> String {
+    let p = path.display();
+    if raw.contains("'\\u{feff}'") {
+        return format!(
+            "{p} starts with a UTF-8 BOM that knapsack couldn't strip. Open it in any editor, save as UTF-8 (without BOM), then re-run."
+        );
+    }
+    if raw.contains("read ") && (raw.contains("Access is denied") || raw.contains("Permission denied")) {
+        return format!(
+            "{p} can't be read (permission denied). Close any program that has it open, or re-run the installer as the user who owns the file."
+        );
+    }
+    if raw.contains("write ") && (raw.contains("Access is denied") || raw.contains("Permission denied")) {
+        return format!(
+            "{p} can't be written (permission denied — file may be read-only or in use). Clear the read-only attribute or close Claude Code, then re-run."
+        );
+    }
+    if raw.contains("could not parse") {
+        // The parser itself appends the path; keep the underlying message but tag the
+        // most likely cause for users who copy-pasted from a JSON-with-comments source.
+        return format!(
+            "{raw}\n     Common causes: trailing commas, // comments, or UTF-16 encoding — knapsack needs strict JSON."
+        );
+    }
+    raw.to_string()
 }
 
 pub enum Patch {
@@ -209,12 +322,19 @@ pub enum Patch {
 fn patch_file<F: FnOnce(&mut Json) -> bool>(path: &Path, f: F) -> Result<Patch, String> {
     let existed = path.exists();
     let mut root = if existed {
-        let txt = fs::read_to_string(path).map_err(|e| format!("read {}: {}", path.display(), e))?;
+        let txt = fs::read_to_string(path)
+            .map_err(|e| humanize_patch_error(path, &format!("read {}: {}", path.display(), e)))?;
+        // Strip a leading BOM before parsing. The patched file is then serialized
+        // BOM-less, normalising to the modern UTF-8 convention. See `strip_bom`.
+        let txt = strip_bom(&txt);
         if txt.trim().is_empty() {
             Json::Obj(vec![])
         } else {
-            json::parse(&txt).map_err(|e| {
-                format!("could not parse {} ({}). Left unchanged — add the entry manually.", path.display(), e)
+            json::parse(txt).map_err(|e| {
+                humanize_patch_error(
+                    path,
+                    &format!("could not parse {} ({}). Left unchanged — add the entry manually.", path.display(), e),
+                )
             })?
         }
     } else {
@@ -236,7 +356,8 @@ fn patch_file<F: FnOnce(&mut Json) -> bool>(path: &Path, f: F) -> Result<Patch, 
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    fs::write(path, json::to_string(&root)).map_err(|e| format!("write {}: {}", path.display(), e))?;
+    fs::write(path, json::to_string(&root))
+        .map_err(|e| humanize_patch_error(path, &format!("write {}: {}", path.display(), e)))?;
     Ok(Patch::Changed(bak))
 }
 
@@ -472,6 +593,14 @@ pub fn run_checks() -> Vec<Check> {
 }
 
 pub fn doctor() -> String {
+    doctor_with_status().0
+}
+
+/// Same as `doctor()` but also returns the count of failing checks, so callers
+/// (`apply`, `repair`) can propagate the failure into their exit-status accounting.
+/// Warnings don't bump the fail counter — a warn-only state means "engine healthy
+/// but not wired in", which is the normal state after `uninstall`.
+fn doctor_with_status() -> (String, usize) {
     let checks = run_checks();
     let mut o = String::from("knapsack doctor\n\n");
     let mut fails = 0;
@@ -499,13 +628,30 @@ pub fn doctor() -> String {
         "Healthy ✓ — engine, hook, and MCP are all wired in."
     });
     o.push('\n');
-    o
+    (o, fails)
 }
 
 // ---------- install / uninstall ----------
-pub fn apply() -> String {
+
+/// Result of an install / repair lifecycle action. Owns the human-readable transcript
+/// AND a `success` bit so callers (e.g. main.rs, CI scripts, automated post-update
+/// hooks) can detect partial failure and exit non-zero. Before this struct, a failing
+/// install printed a ✗ line but exited 0, so an automated installer had no signal.
+pub struct ApplyResult {
+    pub output: String,
+    pub success: bool,
+}
+
+impl std::fmt::Display for ApplyResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.output)
+    }
+}
+
+pub fn apply() -> ApplyResult {
     let bin = bin_path();
     let mut o = String::from("knapsack install\n\n");
+    let mut had_failure = false;
 
     // 3. ensure ~/.knapsack
     let _ = fs::create_dir_all(config::store_dir());
@@ -519,24 +665,38 @@ pub fn apply() -> String {
     match patch_settings_file(&sp, &bin) {
         Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ hook patched      {}{}\n", sp.display(), bak_note(&bak))),
         Ok(Patch::NoChange) => o.push_str(&format!("  • hook already set  {}\n", sp.display())),
-        Err(e) => o.push_str(&format!("  ✗ hook NOT patched  {}\n", e)),
+        Err(e) => {
+            o.push_str(&format!("  ✗ hook NOT patched  {}\n", e));
+            had_failure = true;
+        }
     }
     let mcp = mcp_config_path();
     match patch_mcp_file(&mcp, &bin) {
         Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ MCP patched       {}{}\n", mcp.display(), bak_note(&bak))),
         Ok(Patch::NoChange) => o.push_str(&format!("  • MCP already set   {}\n", mcp.display())),
-        Err(e) => o.push_str(&format!("  ✗ MCP NOT patched   {}\n", e)),
+        Err(e) => {
+            o.push_str(&format!("  ✗ MCP NOT patched   {}\n", e));
+            had_failure = true;
+        }
     }
 
     // 7. smoke + 8. doctor
-    o.push_str(&format!("  {} smoke test\n", if smoke().is_ok() { "✓" } else { "✗" }));
+    let smoke_ok = smoke().is_ok();
+    o.push_str(&format!("  {} smoke test\n", if smoke_ok { "✓" } else { "✗" }));
+    if !smoke_ok {
+        had_failure = true;
+    }
     o.push('\n');
-    o.push_str(&doctor());
+    let (doctor_text, doctor_fails) = doctor_with_status();
+    o.push_str(&doctor_text);
+    if doctor_fails > 0 {
+        had_failure = true;
+    }
 
     // 9. rollback
     o.push_str("\nRestart Claude Code to load the hook + MCP server.\n");
     o.push_str("Rollback any time:  knapsack uninstall   (add --purge to also delete the store/metrics)\n");
-    o
+    ApplyResult { output: o, success: !had_failure }
 }
 
 fn bak_note(bak: &Option<PathBuf>) -> String {
@@ -567,9 +727,10 @@ fn path_guidance() -> String {
 /// MCP entry to *this* binary (current_exe), preserving backups; prints the canonical
 /// SHA-256 so the hook==MCP==this invariant is verifiable; emits safe PATH guidance; and
 /// ends with a full doctor run. Use after promoting a fresh build to the install location.
-pub fn repair() -> String {
+pub fn repair() -> ApplyResult {
     let bin = bin_path();
     let mut o = String::from("knapsack install --repair\n\n");
+    let mut had_failure = false;
 
     let canon_sha = std::env::current_exe().ok().and_then(|p| crate::sha256::sha256_file(&p));
     o.push_str(&format!("  canonical binary    {}\n", bin));
@@ -584,20 +745,30 @@ pub fn repair() -> String {
     match patch_settings_file(&sp, &bin) {
         Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ hook repointed    {}{}\n", sp.display(), bak_note(&bak))),
         Ok(Patch::NoChange) => o.push_str(&format!("  • hook already ok   {}\n", sp.display())),
-        Err(e) => o.push_str(&format!("  ✗ hook NOT fixed    {}\n", e)),
+        Err(e) => {
+            o.push_str(&format!("  ✗ hook NOT fixed    {}\n", e));
+            had_failure = true;
+        }
     }
     let mcp = mcp_config_path();
     match patch_mcp_file(&mcp, &bin) {
         Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ MCP repointed     {}{}\n", mcp.display(), bak_note(&bak))),
         Ok(Patch::NoChange) => o.push_str(&format!("  • MCP already ok    {}\n", mcp.display())),
-        Err(e) => o.push_str(&format!("  ✗ MCP NOT fixed     {}\n", e)),
+        Err(e) => {
+            o.push_str(&format!("  ✗ MCP NOT fixed     {}\n", e));
+            had_failure = true;
+        }
     }
 
     o.push_str(&path_guidance());
     o.push('\n');
-    o.push_str(&doctor());
+    let (doctor_text, doctor_fails) = doctor_with_status();
+    o.push_str(&doctor_text);
+    if doctor_fails > 0 {
+        had_failure = true;
+    }
     o.push_str("\nRestart Claude Code to load the repointed hook + MCP server.\n");
-    o
+    ApplyResult { output: o, success: !had_failure }
 }
 
 pub fn uninstall(purge: bool) -> String {

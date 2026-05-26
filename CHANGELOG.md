@@ -5,6 +5,84 @@ All notable changes to Knapsack are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed (installer hardening)
+
+- **UTF-8 BOM in settings.json / .claude.json no longer breaks install.** Many
+  real-world editors and shells write JSON config files with a leading byte-order
+  mark — PowerShell 5.1's default `Set-Content -Encoding utf8`, Notepad's UTF-8
+  save, some IDE auto-encoders. The strict in-tree JSON parser rejected the BOM
+  with an opaque `unexpected Some('\u{feff}')` error, leaving the user staring
+  at `✗ hook NOT patched  Left unchanged — add the entry manually.` with no
+  recovery path. `install.rs::strip_bom` now normalizes BOM-prefixed UTF-8 on
+  read, and patched files are re-serialized BOM-less (the modern de-facto
+  standard that Claude Code already handles). Pinned by three cases in
+  `tests/config_merge_adversarial.rs`: `utf8_bom_is_stripped_and_file_patches_normally`,
+  `bom_only_file_is_treated_as_empty_object`,
+  `bom_followed_by_invalid_json_humanizes_the_error`.
+
+- **Backup files no longer clobber each other under fast install cycles.** The
+  old `backup()` named files `<path>.knapsack-bak-<unix_secs>`. Two patches in
+  the same second collapsed onto the same name — every later one overwrote
+  the earlier, so a user who hit a bad config and re-ran `install` lost the
+  rollback target for their ORIGINAL good config. Measured: 4 install + 4
+  uninstall cycles in tight succession produced 2 backup files out of 8 expected
+  (75% loss). The fix walks `_2`, `_3`, … until it finds a free name; bounded
+  by 1000 attempts so a pathological filesystem can't spin forever. Pinned by
+  `rapid_patch_cycles_do_not_clobber_each_others_backups` in `tests/lifecycle.rs`
+  — 8 patch+unpatch cycles produce 16 distinct, all-still-on-disk backup files.
+
+- **`knapsack uninstall` no longer leaves empty scaffolding behind.** A clean
+  install→uninstall on an originally-empty config used to leave
+  `{"hooks":{"PreToolUse":[]}}` (settings.json) and `{"mcpServers":{}}`
+  (.claude.json) — cosmetic but visibly noisy in the user's config. New
+  `prune_empty_array` / `prune_empty_object` helpers in `install.rs` drop
+  empty containers ONLY after removing knapsack's own entry, leaving the
+  file as close to its pre-install shape as possible. The counter-test
+  `uninstall_does_not_prune_user_data` pins that an unrelated Edit hook or a
+  cavewoman MCP server in the same container is preserved verbatim — pruning
+  is strictly empty-only.
+
+- **`knapsack install` now exits non-zero when any patch fails.** The old
+  `apply()` returned only the human transcript; the bash hook fires the install
+  the same way, and CI / post-update scripts had no signal that a half-installed
+  state was their actual outcome. New `ApplyResult { output, success }` is
+  consumed by `main.rs::install` dispatch and propagates exit code 1 on any
+  patch failure OR any post-install doctor `Status::Fail`. `repair()` got the
+  same treatment. Warnings don't bump the fail counter (a warn-only state means
+  "engine healthy, not wired in" — the normal post-`uninstall` state). Pinned by
+  `apply_returns_success_false_when_patch_fails` in `tests/lifecycle.rs`.
+
+- **Install error messages are now humanized.** `unexpected Some('\u{feff}')`
+  meant nothing to a normal user; `Left unchanged — add the entry manually.`
+  gave no concrete next step. New `humanize_patch_error` maps the small set of
+  failures we actually see in the wild (BOM that somehow survived the strip,
+  permission denied on read or write, generic parse error) to one-sentence
+  guidance the user can act on — "Open it in any editor, save as UTF-8 (without
+  BOM), then re-run.", "Close any program that has it open…", "Common causes:
+  trailing commas, // comments, or UTF-16 encoding — knapsack needs strict JSON."
+
+- **install.ps1 hardened end-to-end.** Silenced IWR progress bar (10×+ download
+  speed-up on PS 5.1). Retry-with-exponential-backoff wrapper around download
+  (3 attempts, 2-4-8s) for transient Wi-Fi blips and GitHub 503s. Real
+  `knapsack-installer/0.1` User-Agent (default PS UA gets rate-limited harder
+  by GitHub). WOW64-aware architecture detection (a 32-bit PowerShell on
+  64-bit Windows reports `PROCESSOR_ARCHITECTURE=x86`; we now also check
+  `PROCESSOR_ARCHITEW6432` for the host arch). Running-binary detection: if
+  `knapsack.exe` already exists, rename it out of the way before copying — the
+  in-memory image stays valid until Claude Code exits, so the install never
+  fails with "file in use" when Claude Code is open. PATH update is now silent
+  unless `$env:KNAPSACK_VERBOSE` is set — the hook + MCP use absolute paths so
+  PATH isn't required for the product to work. Failure surface is `Die`-style:
+  red error sentence + yellow recovery hint. Success surface is one green line:
+  `Knapsack installed. Restart Claude Code to load it.`
+
+- **install.sh hardened end-to-end.** curl gets `--retry 3 --retry-delay 2
+  --retry-connrefused` for transient failures. Real User-Agent. PATH guidance
+  is silent unless `KNAPSACK_VERBOSE=1`. WSL hint when `Linux` is detected
+  inside a WSL kernel (the Linux binary is the right one — but Claude Code on
+  the Windows side would want install.ps1 in PowerShell). Failure surface is
+  `die`-style with a recovery hint; success is one line.
+
 ### Changed
 
 - **Read hook (input reduction) is now on by default** after `knapsack install`.

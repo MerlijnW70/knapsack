@@ -70,3 +70,50 @@ fn empty_object_gets_patched() {
     assert!(settings_has_hook(&p));
     let _ = std::fs::remove_file(&p);
 }
+
+#[test]
+fn utf8_bom_is_stripped_and_file_patches_normally() {
+    // Real-world #1 failure mode on Windows: PowerShell 5.1's default
+    // `Set-Content -Encoding utf8` writes a UTF-8 BOM. Notepad does too. Our
+    // strict JSON parser would otherwise choke on the leading U+FEFF with an
+    // opaque "unexpected Some('\u{feff}')" error and refuse to patch — a user
+    // would see "✗ hook NOT patched" with no idea what to do. The fix in
+    // install.rs::strip_bom normalises BOM-prefixed UTF-8 to plain UTF-8 on
+    // read, and the patched file is re-serialized BOM-less.
+    let bom = "\u{feff}";
+    let p = tmp("bom-valid", &format!(r#"{}{{"model":"opus"}}"#, bom));
+    assert!(patch_settings_file(&p, "/bin/knapsack").is_ok(), "BOM must not block patching");
+    assert!(settings_has_hook(&p), "hook entry added");
+    let txt = std::fs::read_to_string(&p).unwrap();
+    assert!(!txt.starts_with('\u{feff}'), "output normalised to BOM-less UTF-8");
+    // Parse confirms the BOM didn't poison the round-trip.
+    let v = json::parse(&txt).unwrap();
+    assert_eq!(v.get("model").and_then(|x| x.as_str()), Some("opus"), "unrelated content survives");
+    let _ = std::fs::remove_file(&p);
+}
+
+#[test]
+fn bom_only_file_is_treated_as_empty_object() {
+    // A file containing nothing but a BOM is the degenerate case (e.g. an editor
+    // created the file but the user never typed anything). Treat it the same as
+    // an empty file — initialise to `{}` and patch.
+    let p = tmp("bom-only", "\u{feff}");
+    assert!(patch_settings_file(&p, "/bin/knapsack").is_ok());
+    assert!(settings_has_hook(&p));
+    let _ = std::fs::remove_file(&p);
+}
+
+#[test]
+fn bom_followed_by_invalid_json_humanizes_the_error() {
+    // BOM + junk: we still can't patch, but the user MUST get a sentence they can
+    // act on instead of `unexpected Some('\u{feff}')` jargon. Confirms the
+    // humanizer triggers on the parser's downstream error (the BOM itself is
+    // stripped, but the remaining content still doesn't parse).
+    let p = tmp("bom-junk", "\u{feff}{ this is not json");
+    let err = patch_settings_file(&p, "/bin/knapsack").err().expect("must refuse");
+    assert!(
+        err.contains("trailing commas") || err.contains("comments") || err.contains("UTF-16"),
+        "error must point users at common causes; got: {err}",
+    );
+    let _ = std::fs::remove_file(&p);
+}

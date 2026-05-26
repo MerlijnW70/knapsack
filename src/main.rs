@@ -219,13 +219,26 @@ fn main() {
             // reduction active without further setup. `--repair` rewrites stale binary
             // paths in already-installed configs; `--print` keeps the old manual-snippet
             // surface for anyone who prefers to paste config by hand.
+            //
+            // Exit non-zero on failure so CI/post-update scripts (and the one-line
+            // installer scripts) can detect a partial install and react instead of
+            // silently leaving Claude Code unwired. The friendly transcript still
+            // prints either way; the user sees what failed AND the shell knows.
             if rest.iter().any(|a| a == "--repair") {
-                print!("{}", knapsack::install::repair());
+                let r = knapsack::install::repair();
+                print!("{}", r);
+                if !r.success {
+                    exit(1);
+                }
             } else if rest.iter().any(|a| a == "--print") {
                 print_install();
             } else {
                 // `--apply` is still accepted as an explicit alias; new default is the same.
-                print!("{}", knapsack::install::apply());
+                let r = knapsack::install::apply();
+                print!("{}", r);
+                if !r.success {
+                    exit(1);
+                }
             }
         }
         "uninstall" => print!("{}", knapsack::install::uninstall(rest.iter().any(|a| a == "--purge"))),
