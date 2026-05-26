@@ -256,7 +256,11 @@ fn redirect_emitted_writes_cache_and_returns_path() {
 #[test]
 fn cache_hit_on_unchanged_source_does_not_rewrite_view() {
     // Re-deciding for the same source should reuse the existing cache file — the
-    // file's bytes must not change (proves we didn't regenerate unnecessarily).
+    // file's bytes must not change (proves we didn't regenerate unnecessarily) AND
+    // the why-log reason must flip from RedirectEmitted (fresh) to CacheHit (warm).
+    // Before the cache-existence-captured-before-write fix, every first read was
+    // mislabelled with note=cache-hit because the existence check ran AFTER our
+    // own write step; now the reason itself distinguishes the two cases.
     let _env = EnvGuard::new();
     let dir = tmp("cachehit");
     let src = big_compressible_file(&dir, "src.txt");
@@ -264,11 +268,13 @@ fn cache_hit_on_unchanged_source_does_not_rewrite_view() {
     std::env::set_var("KNAPSACK_STORE", dir.join("store"));
 
     let evt = make_event(src.to_str().unwrap(), &[]);
-    let (redirect_to_1, _) = unwrap_redirect(decide_with_gate(true, &evt));
+    let (redirect_to_1, reason_1) = unwrap_redirect(decide_with_gate(true, &evt));
+    assert_eq!(reason_1, Reason::RedirectEmitted, "first read of a file is a fresh redirect");
     let bytes_1 = std::fs::read(&redirect_to_1).unwrap();
     let mtime_1 = std::fs::metadata(&redirect_to_1).unwrap().modified().unwrap();
 
-    let (redirect_to_2, _) = unwrap_redirect(decide_with_gate(true, &evt));
+    let (redirect_to_2, reason_2) = unwrap_redirect(decide_with_gate(true, &evt));
+    assert_eq!(reason_2, Reason::CacheHit, "second read of the same file is a cache hit");
     assert_eq!(redirect_to_1, redirect_to_2, "same source -> same cache path");
     let bytes_2 = std::fs::read(&redirect_to_2).unwrap();
     assert_eq!(bytes_1, bytes_2, "cache contents unchanged on a re-hit");
@@ -276,6 +282,79 @@ fn cache_hit_on_unchanged_source_does_not_rewrite_view() {
     // Note: mtime equality is OS-dependent at sub-second resolution; we don't assert
     // equality, just that the cache file still exists and the bytes match.
     let _ = (mtime_1, mtime_2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn fresh_redirect_is_not_mislabelled_as_cache_hit() {
+    // Direct pin for the bug surfaced in input-reduction dogfooding: before the fix
+    // in `decide_with_gate`, `cache_note` was computed as `if cache_path.exists()`
+    // AFTER step 7 wrote the cache file, so every first read for a file got the
+    // wrong label (note=cache-hit) and a user running `knapsack why-last` would see
+    // "cache-hit" on a file that had never been seen before. The fix captures the
+    // pre-write existence flag and chooses Reason::CacheHit vs RedirectEmitted from
+    // THAT — so the very first decide on a brand-new file MUST come back as
+    // RedirectEmitted with no `cache-hit` note hidden anywhere.
+    let _env = EnvGuard::new();
+    let dir = tmp("freshlabel");
+    let src = big_compressible_file(&dir, "src.txt");
+    std::env::set_var("KNAPSACK_READ_CACHE", dir.join("cache"));
+    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
+    std::env::set_var("KNAPSACK_READ_LOG", dir.join("read_hook.jsonl"));
+
+    let evt = make_event(src.to_str().unwrap(), &[]);
+    // Drive through `apply` so the why-log line lands on disk exactly the way it
+    // would in production — this is the surface a real user sees via `why-last`.
+    knapsack::read_hook::apply(&evt, decide_with_gate(true, &evt));
+    let log_line = std::fs::read_to_string(dir.join("read_hook.jsonl")).unwrap();
+    assert!(
+        log_line.contains("\"reason\":\"redirect-emitted\""),
+        "first read must log redirect-emitted, not cache-hit; got: {log_line}"
+    );
+    assert!(
+        !log_line.contains("\"note\":\"cache-hit\""),
+        "first read must NOT carry note=cache-hit; got: {log_line}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cache_corruption_routes_through_regenerated_branch() {
+    // Cache file exists but is unreadable (e.g. permission flip, partial write,
+    // user wiped contents). The decider must rebuild the view in memory AND
+    // overwrite the stale cache file, log it as RedirectEmitted + note=regenerated,
+    // and the next read on top of that must hit the fresh cache cleanly.
+    let _env = EnvGuard::new();
+    let dir = tmp("regen");
+    let src = big_compressible_file(&dir, "src.txt");
+    let cache_dir = dir.join("cache");
+    std::env::set_var("KNAPSACK_READ_CACHE", &cache_dir);
+    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
+
+    let evt = make_event(src.to_str().unwrap(), &[]);
+    let (cache_path, reason_1) = unwrap_redirect(decide_with_gate(true, &evt));
+    assert_eq!(reason_1, Reason::RedirectEmitted, "first read = fresh");
+
+    // Corrupt the cache file by replacing it with invalid UTF-8 — `read_to_string`
+    // returns Err, which is the trigger for the `regenerated` branch.
+    std::fs::write(&cache_path, &[0xff, 0xfe, 0xff, 0xfe]).unwrap();
+
+    let (cache_path_2, _reason_2) = unwrap_redirect(decide_with_gate(true, &evt));
+    // The corrupt branch still returns the same cache path AND we wrote a fresh
+    // view to it. The reason is RedirectEmitted (not CacheHit — the cache wasn't
+    // really usable) — the existing infrastructure logs note=regenerated alongside.
+    assert_eq!(cache_path, cache_path_2, "same content -> same cache filename");
+    let bytes_after = std::fs::read(&cache_path_2).unwrap();
+    assert!(
+        std::str::from_utf8(&bytes_after).is_ok(),
+        "regenerated cache must be valid UTF-8 again (we rewrote it)"
+    );
+    assert_ne!(bytes_after, vec![0xff, 0xfe, 0xff, 0xfe], "corrupt bytes must be replaced");
+
+    // Third read should now be a clean CacheHit.
+    let (_, reason_3) = unwrap_redirect(decide_with_gate(true, &evt));
+    assert_eq!(reason_3, Reason::CacheHit, "post-regeneration read is a cache hit");
+
     let _ = std::fs::remove_dir_all(&dir);
 }
 

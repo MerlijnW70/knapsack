@@ -129,11 +129,15 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
     let path_tag = &sha1_hex(path_str.as_bytes())[..8];
     let cache_path = cache_dir.join(format!("{}_{}.md", &digest[..32], path_tag));
 
-    // 5. Cache present? Note the reason so `why-last` shows whether we're hitting
-    //    a stable cache or regenerating after a change. We can't distinguish "first
-    //    time seen" from "file changed" without a path→hash index; for the spike we
-    //    treat both as a cache miss (reason: FileChanged) so the log stays honest.
+    // 5. Decide whether to load the cache view or build a fresh one. We CAPTURE
+    //    `cache_existed_before` here, BEFORE any potential write below — otherwise
+    //    a later `cache_path.exists()` check would always return true (we just
+    //    wrote it) and we'd mislabel every fresh build as a cache hit. The
+    //    `regenerated` flag records the rarer in-between case: the cache file
+    //    was there but unreadable (corruption, permission flip), so we rebuilt.
     let raw_tokens = tokens_bytes(&source);
+    let cache_existed_before = cache_path.exists();
+    let mut regenerated = false;
     // Whether or not we have a cached view, we re-populate the store with the elision
     // blocks and the whole-file handle. This is what makes the `knapsack expand
     // ks2_X` instructions printed in the view actually resolve — the previous
@@ -141,7 +145,7 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
     // "no such handle". Population is content-addressed + idempotent + cheap (O(file
     // size) one structural compress pass), and it self-heals the "user wiped the
     // store but kept the cache" recovery case.
-    let view = if cache_path.exists() {
+    let view = if cache_existed_before {
         match fs::read_to_string(&cache_path) {
             Ok(v) => {
                 // Cache hit: re-stamp store handles so recall keeps working even if
@@ -150,7 +154,10 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
                 populate_store(&path, &source, &session_id);
                 v
             }
-            Err(_) => build_view(&path, &source, &session_id),
+            Err(_) => {
+                regenerated = true;
+                build_view(&path, &source, &session_id)
+            }
         }
     } else {
         build_view(&path, &source, &session_id)
@@ -173,7 +180,7 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
     }
 
     // 7. Persist the view if not already on disk. Any write failure -> pass through.
-    if !cache_path.exists() {
+    if !cache_existed_before {
         if let Some(parent) = cache_path.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -184,20 +191,38 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
                     .note(format!("cache write: {e}")),
             );
         }
+    } else if regenerated {
+        // Cache existed but was unreadable — we rebuilt the view in memory; overwrite
+        // the on-disk file so the next read can hit a fresh, working cache. A second
+        // write failure stays non-fatal (fail-open) for the same reason as elsewhere:
+        // the in-memory view is still usable for THIS redirect.
+        let _ = fs::write(&cache_path, view.as_bytes());
     }
-    // One log line per decision, please — anything more is noise for `why-last`.
-    // The redirect IS the action; cache state goes in `note` for transparency.
-    let cache_note = if cache_path.exists() { "cache-hit" } else { "regenerated" };
-    ReadDecision::Redirect {
-        log: LogEntry::new(Reason::RedirectEmitted)
-            .path(path_str)
-            .bytes(bytes_len)
-            .raw_tokens(raw_tokens)
-            .view_tokens(view_tokens)
-            .redirect_to(cache_path.display().to_string())
-            .note(cache_note),
-        redirect_to: cache_path,
+
+    // 8. Pick the reason FROM THE PRE-WRITE STATE — the old `cache_path.exists()`
+    //    after-the-write check would always report "cache-hit" since we just wrote
+    //    it, so every first read for a file got the wrong label. Three distinct
+    //    stories show up in `knapsack why-last`:
+    //      - Reason::CacheHit                          → hot path, no rebuild
+    //      - Reason::RedirectEmitted + note=regenerated → cache was corrupt, we rebuilt
+    //      - Reason::RedirectEmitted (no note)         → first time we've seen this content
+    let (reason, note) = if cache_existed_before && !regenerated {
+        (Reason::CacheHit, None)
+    } else if regenerated {
+        (Reason::RedirectEmitted, Some("regenerated"))
+    } else {
+        (Reason::RedirectEmitted, None)
+    };
+    let mut entry = LogEntry::new(reason)
+        .path(path_str)
+        .bytes(bytes_len)
+        .raw_tokens(raw_tokens)
+        .view_tokens(view_tokens)
+        .redirect_to(cache_path.display().to_string());
+    if let Some(n) = note {
+        entry = entry.note(n);
     }
+    ReadDecision::Redirect { log: entry, redirect_to: cache_path }
 }
 
 /// Apply a decision to the PreToolUse event and (when redirecting) print the
