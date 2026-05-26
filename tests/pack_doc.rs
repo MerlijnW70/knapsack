@@ -401,6 +401,90 @@ fn inspect_packed_file_lists_recall_index() {
 }
 
 #[test]
+fn inspect_rejects_file_with_only_ks_recall_markers_no_header() {
+    // The dogfood-surfaced bug: documentation files (CHANGELOG.md, README.md)
+    // sometimes contain `<!-- ks-recall handle=... -->` substrings as documented
+    // EXAMPLES of the marker format. The pre-fix check accepted such a file as
+    // a packed sidecar and proudly reported "elisions: 1, lines 0-0" on a doc
+    // that was never packed. The authoritative signal is the `ks-pack` HEADER,
+    // not stray recall markers.
+    let dir = tmpdir("inspect_no_header");
+    let src = dir.join("CHANGELOG.md");
+    // A realistic doc file: contains ks-recall markers as documentation but
+    // has no ks-pack header (because it was never packed).
+    write_file(
+        &src,
+        "# Changelog\n\n\
+         ## [Unreleased]\n\n\
+         - Added new marker shape: `<!-- ks-recall handle=ks_abc123 lines=12-30 tokens=178 -->`\n\
+         - Forward-compat: extra `<!-- ks-recall handle=ks_xyz lines=1-5 future_key=42 -->`\n\
+         \n\
+         Plenty of other documentation that's the real point of the file.\n",
+    );
+
+    let bin = knapsack_bin();
+    if !bin.exists() {
+        eprintln!("skipping: {} not built yet", bin.display());
+        return;
+    }
+    let out = std::process::Command::new(&bin)
+        .args(["inspect", src.to_str().unwrap()])
+        .env("KNAPSACK_STORE", dir.join("store"))
+        .output()
+        .expect("spawn knapsack inspect");
+    assert!(
+        !out.status.success(),
+        "inspect must REJECT a docs file that contains ks-recall markers but no ks-pack header — got success with stdout:\n{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("missing `<!-- ks-pack source=") || stderr.contains("does not look like a knapsack-packed file"),
+        "stderr must name the missing header; got: {stderr}"
+    );
+    // And critically: the misleading success output must NOT have been printed.
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("Knapsack packed view"),
+        "the docs file must NOT be reported as a packed view; got stdout: {stdout}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn inspect_accepts_file_with_only_ks_pack_header_zero_elisions() {
+    // Counter-test for the fix: a genuinely-packed file that happens to have
+    // ZERO elisions (everything was short / structural) MUST still be accepted
+    // because the ks-pack HEADER says it's packed. The fix gates on
+    // `whole_file_handle.is_some()` precisely so this case still works.
+    let dir = tmpdir("inspect_header_only");
+    let src = dir.join("genuine.knapsack.md");
+    write_file(
+        &src,
+        "<!-- ks-pack source=tiny.md handle=ks2_0123456789abcdef0123456789abcdef -->\n\
+         <!-- knapsack inspect <this-file>  ·  knapsack expand ks2_0123456789abcdef0123456789abcdef  (full original) -->\n\
+         \n\
+         # Heading\n\
+         A short paragraph too small to elide.\n",
+    );
+
+    let bin = knapsack_bin();
+    if !bin.exists() { return; }
+    let out = std::process::Command::new(&bin)
+        .args(["inspect", src.to_str().unwrap()])
+        .env("KNAPSACK_STORE", dir.join("store"))
+        .output()
+        .expect("spawn knapsack inspect");
+    assert!(out.status.success(), "header-only packed file should be accepted; stderr:\n{}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("Knapsack packed view"), "header should be honored; got: {stdout}");
+    assert!(stdout.contains("elisions: 0"), "should report 0 elisions; got: {stdout}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn inspect_falls_through_to_handle_mode_when_arg_is_not_a_file() {
     // Preserves the historical CLI: `knapsack inspect <handle>` still hits the store.
     // We pass a WELL-FORMED legacy handle that just happens not to be stored — that

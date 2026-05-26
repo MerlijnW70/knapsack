@@ -35,11 +35,44 @@ pub fn sessions_dir() -> PathBuf {
     env::var_os("KNAPSACK_SESSIONS").map(PathBuf::from).unwrap_or_else(|| base().join("sessions"))
 }
 
+/// Maximum length of the SANITIZED session basename before we truncate and
+/// append a hash suffix for collision-resistance. Tuned for Windows MAX_PATH
+/// (260 chars) with comfortable headroom for a parent path like
+/// `C:\Users\Name\.knapsack\sessions\` (~50 chars) plus the `.tsv` extension.
+///
+/// Going over this used to silently fail: ledger::save did `let _ = fs::write(...)`
+/// so a too-long filename returned Err which was swallowed, every subsequent pack
+/// in that session started cold without warning. Capping at safe length means
+/// the file ALWAYS writes, and uniqueness is preserved via a 16-hex SHA-1 tail
+/// when the original was longer.
+const MAX_SESSION_BASENAME: usize = 128;
+
 pub fn session_path(id: &str) -> PathBuf {
-    let safe: String = id
+    // Defensive: empty (or whitespace-only) session ID used to land at
+    // `sessions/.tsv` (a hidden zero-basename file). The CLI rejects this
+    // loudly, but internal callers may still pass an empty id (e.g. an
+    // event payload missing session_id), so we centralize the fallback here.
+    let trimmed = id.trim();
+    let effective = if trimmed.is_empty() { "default" } else { id };
+
+    let mut safe: String = effective
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
         .collect();
+
+    if safe.len() > MAX_SESSION_BASENAME {
+        // Reserve 17 bytes for "_<16 hex SHA-1>" tail so two long IDs with the
+        // same first-128-byte prefix get distinct paths. SHA-1 here is for
+        // uniqueness only (zero-dep, already in tree); not security-critical.
+        const TAIL_LEN: usize = 17; // 1 underscore + 16 hex
+        let keep = MAX_SESSION_BASENAME - TAIL_LEN;
+        let suffix = &crate::hash::sha1_hex(effective.as_bytes())[..16];
+        // Truncate by BYTES (safe is ASCII after sanitize), not chars.
+        safe.truncate(keep);
+        safe.push('_');
+        safe.push_str(suffix);
+    }
+
     sessions_dir().join(format!("{}.tsv", safe))
 }
 
@@ -83,6 +116,89 @@ mod tests {
     // `serial_test`, so we DIY the same pattern as tests/read_hook.rs.
     use super::*;
     use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    // ---------- session_path: the user-found bugs ----------
+
+    fn basename(p: &PathBuf) -> String {
+        p.file_name().unwrap().to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn session_path_empty_id_falls_back_to_default_not_hidden_dotfile() {
+        // Pre-fix: empty id -> `.tsv` (hidden zero-basename file). On unix `ls`
+        // without -a wouldn't even show it; on Windows it polluted the sessions
+        // dir with an unintuitive name. We now route through the "default" tag.
+        let p = session_path("");
+        assert_eq!(basename(&p), "default.tsv", "empty id must map to default.tsv, got {}", p.display());
+    }
+
+    #[test]
+    fn session_path_whitespace_id_falls_back_to_default() {
+        // A tab / space / newline alone is the same shape of mistake as empty.
+        for ws in [" ", "  ", "\t", "\n", " \t \n "] {
+            let p = session_path(ws);
+            assert_eq!(
+                basename(&p), "default.tsv",
+                "whitespace-only id {:?} must map to default.tsv, got {}", ws, p.display()
+            );
+        }
+    }
+
+    #[test]
+    fn session_path_short_id_unchanged() {
+        // Regression: the fix must NOT alter short legitimate session IDs.
+        let p = session_path("my-session-42");
+        assert_eq!(basename(&p), "my-session-42.tsv");
+    }
+
+    #[test]
+    fn session_path_long_id_is_truncated_with_hash_suffix() {
+        // Pre-fix: a 500-char id produced a 500-char filename that overflowed
+        // Windows MAX_PATH; fs::write silently failed in ledger::save and the
+        // session ledger never persisted. Cap at MAX_SESSION_BASENAME + ".tsv"
+        // so the write ALWAYS succeeds; preserve uniqueness via SHA-1 tail.
+        let long: String = "a".repeat(500);
+        let p = session_path(&long);
+        let name = basename(&p);
+        // Filename = MAX_SESSION_BASENAME chars + ".tsv" = 132 chars
+        assert_eq!(name.len(), MAX_SESSION_BASENAME + 4, "long id filename should be capped, got {} chars", name.len());
+        // Should END in "_<16 hex>.tsv"
+        assert!(
+            name[name.len() - 21..name.len() - 4].starts_with('_'),
+            "tail must be '_<hex>.tsv': {}", name
+        );
+        // The hash tail must be 16 hex chars
+        let hex_tail = &name[name.len() - 20..name.len() - 4];
+        assert!(
+            hex_tail.chars().all(|c| c.is_ascii_hexdigit()),
+            "tail must be hex: {}", hex_tail
+        );
+    }
+
+    #[test]
+    fn session_path_long_ids_with_same_prefix_get_distinct_files() {
+        // Two 500-char IDs that differ only at position 200 (well past the
+        // truncation point) must produce DIFFERENT files. Without the hash
+        // suffix, they'd both truncate to identical prefixes and collide,
+        // silently merging two users' / two sessions' ledgers.
+        let id_a = format!("{}{}", "a".repeat(200), "x".repeat(300));
+        let id_b = format!("{}{}", "a".repeat(200), "y".repeat(300));
+        assert_ne!(
+            session_path(&id_a), session_path(&id_b),
+            "two long IDs with identical 200-char prefix must hash-disambiguate"
+        );
+    }
+
+    #[test]
+    fn session_path_idempotent_within_a_call() {
+        // Same input -> same path, always. The hash tail must be deterministic
+        // (sha1_hex is); a fresh seed would silently move the ledger and lose
+        // session continuity across calls.
+        let id = "x".repeat(500);
+        assert_eq!(session_path(&id), session_path(&id));
+    }
+
+    // ---------- read-hook env gate (existing) ----------
 
     fn env_lock() -> MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();

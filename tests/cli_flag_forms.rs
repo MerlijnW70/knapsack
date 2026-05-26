@@ -231,6 +231,134 @@ fn gc_older_than_equals_form_bad_value_rejects() {
     let _ = std::fs::remove_dir_all(&sb);
 }
 
+// ---------- --session: empty + very long (dogfood-surfaced bugs) ----------
+
+#[test]
+fn pack_session_empty_value_loud_rejects_via_space_form() {
+    // Pre-fix: `pack - --session ""` silently used "" as the session id, which
+    // (a) created a hidden `.tsv` zero-basename file and (b) tagged metrics
+    // with an empty session, breaking per-session filtering. Now: exit 2 with
+    // a clear error pointing at the user's mistake. The shell-substitution
+    // mistake (`--session "$UNSET_VAR"`) is the most likely real-world cause.
+    let sb = sandbox("empty-session-space");
+    let (_, stderr, code) = run(
+        &sb,
+        &["pack", "-", "--session", "", "--cmd", "test", "--type", "log"],
+        Some(b"some output\n"),
+    );
+    assert_eq!(code, 2, "empty --session must exit 2; stderr: {stderr}");
+    assert!(
+        stderr.contains("--session was given an empty value"),
+        "stderr must explain the empty-value rejection; got: {stderr}"
+    );
+    // And no metrics entry should have been written for an empty session.
+    let metrics_path = sb.join("metrics.jsonl");
+    if metrics_path.exists() {
+        let metrics = std::fs::read_to_string(&metrics_path).unwrap();
+        assert!(
+            !metrics.contains(r#""session":""#) || !metrics.contains(r#""session":"""#),
+            "no metrics row with empty session string should have been written; got: {metrics}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&sb);
+}
+
+#[test]
+fn pack_session_empty_value_loud_rejects_via_equals_form() {
+    // Symmetric pin for the equals form. After the previous bugfix that made
+    // `--session=value` parse, `--session=` (empty after =) reaches the same
+    // empty-value gate and must produce the same loud error.
+    let sb = sandbox("empty-session-eq");
+    let (_, stderr, code) = run(
+        &sb,
+        &["pack", "-", "--session=", "--cmd", "test", "--type", "log"],
+        Some(b"some output\n"),
+    );
+    assert_eq!(code, 2, "empty --session= must exit 2; stderr: {stderr}");
+    assert!(
+        stderr.contains("--session was given an empty value"),
+        "stderr must explain the empty-value rejection; got: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&sb);
+}
+
+#[test]
+fn pack_session_whitespace_only_loud_rejects() {
+    // A space / tab alone is the same shape of mistake as empty — most often
+    // a `--session " "` argument from a shell quoting accident. We trim before
+    // the check so any whitespace-only value gets the same loud reject.
+    let sb = sandbox("ws-session");
+    let (_, stderr, code) = run(
+        &sb,
+        &["pack", "-", "--session", "   ", "--cmd", "test", "--type", "log"],
+        Some(b"some output\n"),
+    );
+    assert_eq!(code, 2, "whitespace --session must exit 2; stderr: {stderr}");
+    assert!(stderr.contains("--session"), "stderr names the flag: {stderr}");
+    let _ = std::fs::remove_dir_all(&sb);
+}
+
+#[test]
+fn expand_session_empty_value_loud_rejects_too() {
+    // Symmetric protection on the expand path. expand uses --session to
+    // attribute the refetch cost; an empty session there would have the same
+    // bug shape as on pack (mis-tagged metrics + hidden file).
+    let sb = sandbox("empty-session-expand");
+    // First put a known handle so we have something to expand.
+    let payload = b"line1\nline2\nline3\nline4\n";
+    let p = sb.join("seed.txt");
+    std::fs::write(&p, payload).unwrap();
+    let (out, _, _) = run(&sb, &["store", "put", p.to_str().unwrap()], None);
+    let handle = out.trim().to_string();
+
+    let (_, stderr, code) = run(&sb, &["expand", &handle, "--session", ""], None);
+    assert_eq!(code, 2, "expand with empty --session must exit 2; stderr: {stderr}");
+    assert!(stderr.contains("--session"), "stderr names the flag: {stderr}");
+    let _ = std::fs::remove_dir_all(&sb);
+}
+
+#[test]
+fn pack_with_500_char_session_succeeds_and_persists_ledger() {
+    // Pre-fix: a 500-char session id produced a 500-char filename that
+    // overflowed Windows MAX_PATH; the underlying `fs::write` in `ledger::save`
+    // returned Err which was swallowed (`let _ = ...`), so the session ledger
+    // never persisted. The user got cold compression on every subsequent pack
+    // in that session with NO warning. Post-fix: `session_path` caps the
+    // basename at 128 chars + 16-hex SHA-1 tail for collision-resistance, so
+    // the file always writes regardless of input length.
+    let sb = sandbox("long-session");
+    let payload: Vec<u8> = b"output line for long-session test\n".repeat(50);
+    let long: String = "a".repeat(500);
+    let (_, stderr, code) = run(
+        &sb,
+        &["pack", "-", "--session", &long, "--cmd", "test", "--type", "log"],
+        Some(&payload),
+    );
+    assert_eq!(code, 0, "500-char session must pack successfully; stderr: {stderr}");
+
+    // The session ledger MUST have been persisted (sub-128-char filename + .tsv).
+    let sessions_dir = sb.join("sessions");
+    let files: Vec<_> = std::fs::read_dir(&sessions_dir)
+        .expect("sessions dir must exist")
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(files.len(), 1, "exactly one session file expected, got {:?}",
+        files.iter().map(|f| f.file_name()).collect::<Vec<_>>());
+    let fname = files[0].file_name().to_string_lossy().into_owned();
+    assert!(fname.ends_with(".tsv"), "session file must end in .tsv: {fname}");
+    assert!(
+        fname.len() <= 132,
+        "session filename must be capped at MAX_SESSION_BASENAME(128) + '.tsv'(4); got {} chars: {fname}",
+        fname.len()
+    );
+
+    // And the file must not be empty — i.e. the ledger actually wrote.
+    let ledger_bytes = std::fs::read(files[0].path()).unwrap();
+    assert!(!ledger_bytes.is_empty(), "ledger file must contain at least one block entry");
+
+    let _ = std::fs::remove_dir_all(&sb);
+}
+
 // ---------- pack <file>: --output ----------
 
 #[test]

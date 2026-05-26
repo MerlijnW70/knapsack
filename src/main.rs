@@ -223,12 +223,26 @@ fn main() {
                     exit(2);
                 }),
             };
+            let session_id = match flag(rest, "--session") {
+                None => "cli".to_string(),
+                Some(s) if s.trim().is_empty() => {
+                    // Distinguish "user gave us an empty value" (`--session ""` or
+                    // `--session=`) from "user didn't pass --session at all". The
+                    // former is almost always a shell-substitution mistake the user
+                    // wants to know about — silently mapping it to a fallback would
+                    // pollute their metrics under the wrong tag. Loud-reject matches
+                    // the pattern used by --lines / --context / --older-than.
+                    eprintln!("knapsack: --session was given an empty value; pass a non-empty id (or omit the flag for the default 'cli' session)");
+                    exit(2);
+                }
+                Some(s) => s.to_string(),
+            };
             let req = ExpandRequest {
                 handle: handle.clone(),
                 range,
                 grep: flag(rest, "--grep").map(|s| s.to_string()),
                 context,
-                session_id: flag(rest, "--session").unwrap_or("cli").to_string(),
+                session_id,
             };
             match expand_handle(req) {
                 Some(RecallOut::Bytes(b)) => {
@@ -375,7 +389,17 @@ fn main() {
 /// `knapsack hook` rewrites bash commands to invoke (see hook.rs::wrap_command).
 fn run_pack_stdin(path: &str, rest: &[String]) {
     let bytes = read_stdin();
-    let session = flag(rest, "--session").unwrap_or("cli").to_string();
+    // Same loud-reject pattern as `expand`: --session "" is almost always a
+    // shell-substitution mistake the user wants to know about, not a request to
+    // bucket pack output under an empty session tag.
+    let session = match flag(rest, "--session") {
+        None => "cli".to_string(),
+        Some(s) if s.trim().is_empty() => {
+            eprintln!("knapsack: --session was given an empty value; pass a non-empty id (or omit the flag for the default 'cli' session)");
+            exit(2);
+        }
+        Some(s) => s.to_string(),
+    };
     let cmd_label = flag(rest, "--cmd").map(|s| s.to_string());
     let ct = match flag(rest, "--type") {
         Some("code") => Some(ContentType::Code),
@@ -492,9 +516,17 @@ fn run_inspect_doc(path: &std::path::Path) {
         }
     };
     let m = knapsack::pack_doc::parse_packed(&content);
-    if m.whole_file_handle.is_none() && m.markers.is_empty() {
+    // The `<!-- ks-pack source=... handle=... -->` header is the AUTHORITATIVE signal
+    // that a file is a knapsack-packed sidecar. ks-recall markers without that header
+    // are ambiguous — they could be documentation (the CHANGELOG.md / README.md of
+    // this very project both quote the marker format as an example), a partial edit,
+    // or a backup. The OLD check (`whole_file_handle.is_none() && markers.is_empty()`)
+    // accepted any file containing a stray `<!-- ks-recall ... -->` substring and
+    // proudly reported it as packed — leaving the user staring at "elisions: 1" on a
+    // docs file that was never packed. Require the header.
+    if m.whole_file_handle.is_none() {
         eprintln!(
-            "knapsack inspect: {} does not look like a knapsack-packed file (no `ks-pack` header, no `ks-recall` markers).",
+            "knapsack inspect: {} does not look like a knapsack-packed file (missing `<!-- ks-pack source=... handle=... -->` header). If you packed this file, the header must be the first comment in it; re-run `knapsack pack` to regenerate.",
             path.display()
         );
         exit(1);
