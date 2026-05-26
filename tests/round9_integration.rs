@@ -1,5 +1,10 @@
 //! Round-9: stale-cache self-heal, pack-doc on real project markdown,
 //! residency interactions, extreme transcript paths, expand exotic combos.
+//!
+//! Parallel-safe via `common::EnvSandbox`.
+
+mod common;
+use common::EnvSandbox;
 
 use knapsack::api::{expand_handle, pack_output, record_residency, ExpandRequest, PackRequest};
 use knapsack::content_type::ContentType;
@@ -40,15 +45,12 @@ fn read_hook_self_heals_when_store_was_wiped_but_cache_kept() {
     // longer resolve. read_hook is documented to re-populate the store on
     // cache hit so the recall handles work again. Verify that contract
     // end-to-end.
-    let dir = tmp("self-heal");
-    let src = dir.join("src.rs");
+    let sb = EnvSandbox::new("self-heal");
+    let src = sb.join("src.rs");
     // Use this project's install.rs (~30KB, known to compress past threshold)
     let real_src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/install.rs");
     let content = std::fs::read(&real_src).expect("install.rs must exist");
     std::fs::write(&src, &content).unwrap();
-
-    std::env::set_var("KNAPSACK_READ_CACHE", dir.join("cache"));
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
 
     let evt = make_read_event(src.to_str().unwrap());
     // First read: builds the cache view + populates the store.
@@ -87,8 +89,8 @@ fn read_hook_self_heals_when_store_was_wiped_but_cache_kept() {
     assert!(pre_wipe.is_some(), "handle resolves pre-wipe");
 
     // WIPE the store. Cache file remains.
-    std::fs::remove_dir_all(dir.join("store")).unwrap();
-    assert!(!dir.join("store").exists());
+    std::fs::remove_dir_all(sb.join("store")).unwrap();
+    assert!(!sb.join("store").exists());
     assert!(cache_path.exists(), "cache file MUST still exist post-wipe");
 
     // Second read: should HIT the cache AND re-populate the store.
@@ -110,10 +112,6 @@ fn read_hook_self_heals_when_store_was_wiped_but_cache_kept() {
         knapsack::recall::RecallOut::Text(t) => t.into_bytes(),
     };
     assert_eq!(got, content, "self-healed bytes must be byte-exact original");
-
-    std::env::remove_var("KNAPSACK_READ_CACHE");
-    std::env::remove_var("KNAPSACK_STORE");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -121,13 +119,10 @@ fn read_hook_cache_hit_reason_after_self_heal() {
     // Same self-heal scenario, but verify the WHY-LOG reason is CacheHit on
     // the second read (post-fix: reason now correctly differs between fresh
     // and cache-hit).
-    let dir = tmp("self-heal-reason");
-    let src = dir.join("src.rs");
+    let sb = EnvSandbox::new("self-heal-reason");
+    let src = sb.join("src.rs");
     let real_src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/install.rs");
     std::fs::write(&src, std::fs::read(&real_src).unwrap()).unwrap();
-
-    std::env::set_var("KNAPSACK_READ_CACHE", dir.join("cache"));
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
 
     let evt = make_read_event(src.to_str().unwrap());
     let d1 = decide_with_gate(true, &evt);
@@ -138,33 +133,24 @@ fn read_hook_cache_hit_reason_after_self_heal() {
     assert_eq!(r1, Reason::RedirectEmitted, "first read is RedirectEmitted (fresh)");
 
     // Wipe store, repeat
-    std::fs::remove_dir_all(dir.join("store")).unwrap();
+    std::fs::remove_dir_all(sb.join("store")).unwrap();
     let d2 = decide_with_gate(true, &evt);
     let r2 = match d2 {
         ReadDecision::Redirect { log, .. } => log.reason,
         _ => panic!(),
     };
     assert_eq!(r2, Reason::CacheHit, "second read is CacheHit (warm cache, store re-populated under the hood)");
-
-    std::env::remove_var("KNAPSACK_READ_CACHE");
-    std::env::remove_var("KNAPSACK_STORE");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // =====================================================================
 // 2. Pack-doc round-trip every project markdown
 // =====================================================================
 
-fn pack_doc_round_trip(src_filename: &str) {
-    let dir = tmp(&format!("rt-{src_filename}"));
-    // CRITICAL: use the SAME dir for both the direct Store handle AND for
-    // env-var-resolved expand_handle. Otherwise pack_doc writes to one store
-    // and expand_handle (via api → config::store_dir() → KNAPSACK_STORE) reads
-    // from another. Tests in this file set KNAPSACK_STORE in their wrappers
-    // — but to a different outer dir; the inner helper must override to its
-    // own dir so the two surfaces line up.
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    let store = Store::new(dir.join("store"));
+fn pack_doc_round_trip(src_filename: &str, store_dir: PathBuf) {
+    // The caller is responsible for ensuring KNAPSACK_STORE points at `store_dir`
+    // so the direct `Store::new` handle and the env-var-resolved `expand_handle`
+    // operate on the same on-disk store. EnvSandbox in the outer test handles that.
+    let store = Store::new(store_dir);
     let project_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let src_path = project_root.join(src_filename);
     if !src_path.exists() {
@@ -208,41 +194,24 @@ fn pack_doc_round_trip(src_filename: &str) {
         assert_eq!(got_text, want,
             "{src_filename}: marker {marker:?} did not stitch back to original lines");
     }
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn pack_doc_round_trip_changelog_md() {
-    let dir = tmp("rt-changelog-env");
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    std::env::set_var("KNAPSACK_METRICS", dir.join("metrics.jsonl"));
-    pack_doc_round_trip("CHANGELOG.md");
-    std::env::remove_var("KNAPSACK_STORE");
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(&dir);
+    let sb = EnvSandbox::new("rt-changelog");
+    pack_doc_round_trip("CHANGELOG.md", sb.join("store"));
 }
 
 #[test]
 fn pack_doc_round_trip_readme_md() {
-    let dir = tmp("rt-readme-env");
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    std::env::set_var("KNAPSACK_METRICS", dir.join("metrics.jsonl"));
-    pack_doc_round_trip("README.md");
-    std::env::remove_var("KNAPSACK_STORE");
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(&dir);
+    let sb = EnvSandbox::new("rt-readme");
+    pack_doc_round_trip("README.md", sb.join("store"));
 }
 
 #[test]
 fn pack_doc_round_trip_dogfood_md() {
-    let dir = tmp("rt-dogfood-env");
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    std::env::set_var("KNAPSACK_METRICS", dir.join("metrics.jsonl"));
-    pack_doc_round_trip("DOGFOOD.md");
-    std::env::remove_var("KNAPSACK_STORE");
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(&dir);
+    let sb = EnvSandbox::new("rt-dogfood");
+    pack_doc_round_trip("DOGFOOD.md", sb.join("store"));
 }
 
 // =====================================================================
@@ -251,10 +220,7 @@ fn pack_doc_round_trip_dogfood_md() {
 
 #[test]
 fn programmatic_record_residency_visible_in_subsequent_pack() {
-    let dir = tmp("residency-api");
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    std::env::set_var("KNAPSACK_SESSIONS", dir.join("sessions"));
-    std::env::set_var("KNAPSACK_METRICS", dir.join("metrics.jsonl"));
+    let _sb = EnvSandbox::new("residency-api");
 
     let session = "rec-resident";
     let h = "ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -263,11 +229,6 @@ fn programmatic_record_residency_visible_in_subsequent_pack() {
     // Load the ledger from disk and confirm the handle is Resident
     let ledger = Ledger::load(knapsack::config::session_path(session));
     assert_eq!(ledger.residency(&h.to_string()), Residency::Resident);
-
-    std::env::remove_var("KNAPSACK_STORE");
-    std::env::remove_var("KNAPSACK_SESSIONS");
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -372,9 +333,8 @@ fn wrap_command_with_transcript_path_empty_or_whitespace_is_skipped() {
 #[test]
 fn expand_with_lines_then_grep_filters_in_window() {
     // Order matters: --lines slices first, then --grep filters within the slice.
-    let dir = tmp("exp-lines-grep");
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    let store = Store::new(dir.join("store"));
+    let sb = EnvSandbox::new("exp-lines-grep");
+    let store = Store::new(sb.join("store"));
     let payload = b"line1 hello\nline2 world\nline3 hello world\nline4 nothing\nline5 hello again\n";
     let h = store.put(payload);
 
@@ -393,16 +353,12 @@ fn expand_with_lines_then_grep_filters_in_window() {
     assert!(text.contains("line1 hello"));
     assert!(text.contains("line3 hello world"));
     assert!(!text.contains("line5"), "line 5 is outside the --lines window");
-
-    std::env::remove_var("KNAPSACK_STORE");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn expand_with_grep_and_context_combined() {
-    let dir = tmp("exp-grep-ctx");
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    let store = Store::new(dir.join("store"));
+    let sb = EnvSandbox::new("exp-grep-ctx");
+    let store = Store::new(sb.join("store"));
     let payload = b"unrelated 1\nunrelated 2\nTARGET\nunrelated 3\nunrelated 4\n";
     let h = store.put(payload);
 
@@ -423,16 +379,12 @@ fn expand_with_grep_and_context_combined() {
     assert!(text.contains("unrelated 3"));
     assert!(!text.contains("unrelated 1"), "context=1 doesn't include unrelated 1");
     assert!(!text.contains("unrelated 4"), "context=1 doesn't include unrelated 4");
-
-    std::env::remove_var("KNAPSACK_STORE");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn expand_grep_with_unicode_pattern() {
-    let dir = tmp("exp-grep-unicode");
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    let store = Store::new(dir.join("store"));
+    let sb = EnvSandbox::new("exp-grep-unicode");
+    let store = Store::new(sb.join("store"));
     let payload = "ascii line\n世界 line\nemoji 🎒 line\n更多 line\nfinal ascii\n".as_bytes();
     let h = store.put(payload);
 
@@ -449,18 +401,14 @@ fn expand_grep_with_unicode_pattern() {
     };
     assert!(text.contains("世界"), "unicode grep finds CJK match");
     assert!(!text.contains("ascii line"));
-
-    std::env::remove_var("KNAPSACK_STORE");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn expand_lines_on_non_utf8_bytes_returns_full_bytes() {
     // recall::expand: if the bytes aren't UTF-8, --lines slicing falls back
     // to returning the full Bytes (documented).
-    let dir = tmp("exp-binary-lines");
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    let store = Store::new(dir.join("store"));
+    let sb = EnvSandbox::new("exp-binary-lines");
+    let store = Store::new(sb.join("store"));
     let payload: Vec<u8> = (0..=255u8).collect(); // binary, definitely not UTF-8
     let h = store.put(&payload);
 
@@ -477,9 +425,6 @@ fn expand_lines_on_non_utf8_bytes_returns_full_bytes() {
         knapsack::recall::RecallOut::Bytes(b) => assert_eq!(b, payload, "fallback returns full bytes"),
         knapsack::recall::RecallOut::Text(_) => panic!("non-UTF-8 should return Bytes"),
     }
-
-    std::env::remove_var("KNAPSACK_STORE");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // =====================================================================
@@ -488,10 +433,7 @@ fn expand_lines_on_non_utf8_bytes_returns_full_bytes() {
 
 #[test]
 fn back_to_back_packs_with_alternating_sessions_dont_interfere() {
-    let dir = tmp("alt-sessions");
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    std::env::set_var("KNAPSACK_SESSIONS", dir.join("sessions"));
-    std::env::set_var("KNAPSACK_METRICS", dir.join("metrics.jsonl"));
+    let _sb = EnvSandbox::new("alt-sessions");
 
     let payload = b"alt sessions test\nlinetwo\nlinethree\n".repeat(20);
 
@@ -514,9 +456,4 @@ fn back_to_back_packs_with_alternating_sessions_dont_interfere() {
                 "warm pack in session {sess} (step {step}) should have delta hits");
         }
     }
-
-    std::env::remove_var("KNAPSACK_STORE");
-    std::env::remove_var("KNAPSACK_SESSIONS");
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(&dir);
 }

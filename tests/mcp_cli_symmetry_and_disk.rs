@@ -4,27 +4,14 @@
 //!   they share `metrics::report` but it's worth pinning end-to-end.
 //! - Disk write failure handling: read-only metrics path, read-only
 //!   sessions dir. Pack/expand/install must fail gracefully, not panic.
+//!
+//! Parallel-safe via `common::EnvSandbox`.
+
+mod common;
+use common::EnvSandbox;
 
 use knapsack::mcp::handle_message;
 use knapsack::{api, metrics};
-use std::path::PathBuf;
-
-fn sandbox(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let d = std::env::temp_dir().join(format!("kn-mcp-cli-{}-{}-{}", tag, std::process::id(), t));
-    std::fs::create_dir_all(&d).unwrap();
-    std::env::set_var("KNAPSACK_STORE", d.join("store"));
-    std::env::set_var("KNAPSACK_SESSIONS", d.join("sessions"));
-    std::env::set_var("KNAPSACK_METRICS", d.join("metrics.jsonl"));
-    d
-}
-
-fn teardown(d: &PathBuf) {
-    for v in ["KNAPSACK_STORE", "KNAPSACK_SESSIONS", "KNAPSACK_METRICS"] {
-        std::env::remove_var(v);
-    }
-    let _ = std::fs::remove_dir_all(d);
-}
 
 // =====================================================================
 // 1. MCP / CLI symmetry on metrics
@@ -57,17 +44,16 @@ fn rpc_metrics_text(session: Option<&str>) -> String {
 
 #[test]
 fn mcp_metrics_text_equals_cli_metrics_text_when_no_data() {
-    let dir = sandbox("mcp-sym-empty");
+    let _sb = EnvSandbox::new("mcp-sym-empty");
     let cli_text = metrics::report();
     let mcp_text = rpc_metrics_text(None);
     assert_eq!(cli_text, mcp_text,
         "MCP and CLI must return identical text for empty metrics state");
-    teardown(&dir);
 }
 
 #[test]
 fn mcp_metrics_text_equals_cli_metrics_text_with_real_data() {
-    let dir = sandbox("mcp-sym-data");
+    let _sb = EnvSandbox::new("mcp-sym-data");
     // Seed some metrics
     metrics::record_compress("sess-a", 1000, 300, 700, 5, 0);
     metrics::record_compress("sess-a", 800, 200, 600, 3, 0);
@@ -78,12 +64,11 @@ fn mcp_metrics_text_equals_cli_metrics_text_with_real_data() {
     let mcp_text = rpc_metrics_text(None);
     assert_eq!(cli_text, mcp_text,
         "MCP and CLI must return identical text for populated metrics state");
-    teardown(&dir);
 }
 
 #[test]
 fn mcp_metrics_text_matches_cli_per_session_filter() {
-    let dir = sandbox("mcp-sym-filter");
+    let _sb = EnvSandbox::new("mcp-sym-filter");
     metrics::record_compress("filter-target", 1000, 200, 800, 5, 0);
     metrics::record_compress("other-session", 500, 100, 400, 2, 0);
 
@@ -94,12 +79,11 @@ fn mcp_metrics_text_matches_cli_per_session_filter() {
     // The filtered report should NOT mention the OTHER session's numbers
     let unfiltered = metrics::report();
     assert_ne!(cli_filtered, unfiltered, "filter must actually change the output");
-    teardown(&dir);
 }
 
 #[test]
 fn mcp_metrics_response_envelope_shape_is_stable() {
-    let dir = sandbox("mcp-env-shape");
+    let _sb = EnvSandbox::new("mcp-env-shape");
     let req = r#"{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"knapsack_metrics","arguments":{}}}"#;
     let resp = handle_message(req).expect("must respond");
 
@@ -108,15 +92,14 @@ fn mcp_metrics_response_envelope_shape_is_stable() {
     assert!(resp.contains(r#""id":42"#), "id echoed back");
     assert!(resp.contains(r#""type":"text""#));
     assert!(resp.contains(r#""isError":false"#), "metrics is informational, not an error");
-    teardown(&dir);
 }
 
 #[test]
 fn mcp_inspect_response_envelope_shape() {
     // Same envelope check for knapsack_inspect on a fresh handle.
-    let dir = sandbox("mcp-insp-shape");
+    let sb = EnvSandbox::new("mcp-insp-shape");
     let bytes = b"inspect test content";
-    let store = knapsack::store::Store::new(dir.join("store"));
+    let store = knapsack::store::Store::new(sb.join("store"));
     let h = store.put(bytes);
     let req = format!(
         r#"{{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{{"name":"knapsack_inspect","arguments":{{"handle":"{h}"}}}}}}"#
@@ -126,14 +109,13 @@ fn mcp_inspect_response_envelope_shape() {
     assert!(resp.contains(r#""type":"text""#));
     assert!(resp.contains(r#""isError":false"#));
     assert!(resp.contains("bytes"), "inspect text contains 'bytes'");
-    teardown(&dir);
 }
 
 #[test]
 fn mcp_expand_response_envelope_shape() {
-    let dir = sandbox("mcp-exp-shape");
+    let sb = EnvSandbox::new("mcp-exp-shape");
     let bytes = b"expand test content\nline two\n";
-    let store = knapsack::store::Store::new(dir.join("store"));
+    let store = knapsack::store::Store::new(sb.join("store"));
     let h = store.put(bytes);
     let req = format!(
         r#"{{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{{"name":"knapsack_expand","arguments":{{"handle":"{h}"}}}}}}"#
@@ -142,7 +124,6 @@ fn mcp_expand_response_envelope_shape() {
     assert!(resp.contains(r#""id":17"#));
     assert!(resp.contains(r#""type":"text""#));
     assert!(resp.contains(r#""isError":false"#));
-    teardown(&dir);
 }
 
 // =====================================================================
@@ -154,11 +135,11 @@ fn pack_with_unwriteable_metrics_path_does_not_crash() {
     // Point KNAPSACK_METRICS at an unwriteable location (a directory, so the
     // open-as-file fails). Pack must still succeed in compression — the
     // metrics-write failure is silently swallowed (`let _ = ...` in metrics.rs).
-    let dir = sandbox("disk-fail-metrics");
+    let mut sb = EnvSandbox::new("disk-fail-metrics");
     // Replace metrics with a path that's actually a directory (write fails)
-    let bad_metrics_dir = dir.join("metrics-as-dir");
+    let bad_metrics_dir = sb.join("metrics-as-dir");
     std::fs::create_dir_all(&bad_metrics_dir).unwrap();
-    std::env::set_var("KNAPSACK_METRICS", &bad_metrics_dir);
+    sb.set("KNAPSACK_METRICS", &bad_metrics_dir);
 
     let r = api::pack_output(api::PackRequest {
         session_id: "disk-fail".into(),
@@ -171,18 +152,17 @@ fn pack_with_unwriteable_metrics_path_does_not_crash() {
     // Pack succeeded — compression worked
     assert!(r.raw_tokens_est > 0);
     // Metrics is a directory; record_compress silently failed, no panic.
-    teardown(&dir);
 }
 
 #[test]
 fn expand_on_handle_from_unwriteable_store_returns_none() {
     // Point store at a directory we can't extend (simulate by making the
     // store dir a regular FILE). store::put fails to write; get returns None.
-    let dir = sandbox("disk-fail-store");
-    let fake_store_dir = dir.join("store-as-file");
+    let mut sb = EnvSandbox::new("disk-fail-store");
+    let fake_store_dir = sb.join("store-as-file");
     // Create as a FILE not a dir
     std::fs::write(&fake_store_dir, b"i am a regular file pretending to be the store dir").unwrap();
-    std::env::set_var("KNAPSACK_STORE", &fake_store_dir);
+    sb.set("KNAPSACK_STORE", &fake_store_dir);
 
     let r = api::pack_output(api::PackRequest {
         session_id: "disk-fail-2".into(),
@@ -203,15 +183,14 @@ fn expand_on_handle_from_unwriteable_store_returns_none() {
         session_id: "x".into(),
     });
     assert!(out.is_none(), "expand on broken store returns None, not crash");
-    teardown(&dir);
 }
 
 #[test]
 fn doctor_on_unwriteable_store_reports_fail() {
-    let dir = sandbox("doctor-rw-store");
-    let fake_store = dir.join("store-as-file");
+    let mut sb = EnvSandbox::new("doctor-rw-store");
+    let fake_store = sb.join("store-as-file");
     std::fs::write(&fake_store, b"file not dir").unwrap();
-    std::env::set_var("KNAPSACK_STORE", &fake_store);
+    sb.set("KNAPSACK_STORE", &fake_store);
 
     let report = knapsack::install::doctor();
     // The "store writable" check probes by writing a test file. With store dir
@@ -222,7 +201,6 @@ fn doctor_on_unwriteable_store_reports_fail() {
         report.contains('✗') || report.contains("Unhealthy"),
         "doctor must surface the disk problem; got:\n{report}"
     );
-    teardown(&dir);
 }
 
 #[test]
@@ -230,11 +208,10 @@ fn metrics_in_memory_fallback_when_file_missing() {
     // If the metrics file simply doesn't exist (fresh install), summary
     // returns zeros — no panic. Already pinned elsewhere but doubly assert
     // here because of the disk-failure theme.
-    let dir = sandbox("metrics-missing");
+    let _sb = EnvSandbox::new("metrics-missing");
     let report = metrics::report();
     assert!(report.contains("compress events"));
     assert!(report.contains("no data yet"));
-    teardown(&dir);
 }
 
 // =====================================================================
@@ -243,7 +220,7 @@ fn metrics_in_memory_fallback_when_file_missing() {
 
 #[test]
 fn metrics_concurrent_writes_dont_corrupt_summary() {
-    let dir = sandbox("metrics-concur");
+    let _sb = EnvSandbox::new("metrics-concur");
     // 10 threads each writing 50 compress events. The single-write_all in
     // metrics::append should keep lines intact under concurrency.
     let mut handles = vec![];
@@ -265,5 +242,4 @@ fn metrics_concurrent_writes_dont_corrupt_summary() {
         s.compress_events);
     assert_eq!(s.raw, 500 * 100);
     assert_eq!(s.saved, 500 * 50);
-    teardown(&dir);
 }

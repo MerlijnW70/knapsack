@@ -2,40 +2,24 @@
 //! ExpandRequest field, every cross-session attribution edge. The CLI is one
 //! caller of this API; other callers (a future plugin, a custom hook, an
 //! agent SDK) must see the same contract — so we test through the API itself.
+//!
+//! Parallel-safe via the shared `common::EnvSandbox` helper: each test holds the
+//! process-global env lock for its duration, so the standard `KNAPSACK_*` paths
+//! point at a per-test temp dir even when cargo parallelizes the binary.
+
+mod common;
+use common::EnvSandbox;
 
 use knapsack::api::{evict, expand_handle, pack_output, record_residency, ExpandRequest, PackRequest};
 use knapsack::content_type::ContentType;
 use knapsack::recall::RecallOut;
 use std::path::PathBuf;
 
-/// Each test runs in its own KNAPSACK_* sandbox so they don't share state.
-/// Returns the sandbox dir so the test can poke at metrics, sessions, store, etc.
-fn sandbox(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("kn-api-{}-{}-{}", tag, std::process::id(), t));
-    std::fs::create_dir_all(&dir).unwrap();
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    std::env::set_var("KNAPSACK_SESSIONS", dir.join("sessions"));
-    std::env::set_var("KNAPSACK_METRICS", dir.join("metrics.jsonl"));
-    dir
-}
-
-fn teardown(dir: &PathBuf) {
-    std::env::remove_var("KNAPSACK_STORE");
-    std::env::remove_var("KNAPSACK_SESSIONS");
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(dir);
-}
-
-// NOTE: these tests share KNAPSACK_* env vars within a single test binary process,
-// so cargo's parallel test runner could interleave them. Run serialized with
-// `--test-threads=1` via the existing project convention (see tests/read_hook.rs).
-
 // ---------- pack_output: every PackRequest field ----------
 
 #[test]
 fn pack_output_with_minimal_request() {
-    let dir = sandbox("pack-minimal");
+    let _sb = EnvSandbox::new("pack-minimal");
     let r = pack_output(PackRequest {
         session_id: "min".into(),
         command: None,
@@ -47,12 +31,11 @@ fn pack_output_with_minimal_request() {
     assert!(r.raw_tokens_est > 0);
     assert!(!r.view.is_empty());
     assert_eq!(r.delta_hits, 0, "first pack -> no delta hits");
-    teardown(&dir);
 }
 
 #[test]
 fn pack_output_content_hint_overrides_detection() {
-    let dir = sandbox("pack-hint");
+    let _sb = EnvSandbox::new("pack-hint");
     // Bytes look like log but we declare them as Code — the structural strategy
     // should follow our hint, not the heuristic.
     let bytes = b"line one\nline two with error\nline three\nline four\n".repeat(20);
@@ -77,12 +60,11 @@ fn pack_output_content_hint_overrides_detection() {
         r_log.view != r_code.view || r_log.blocks != r_code.blocks,
         "hint must actually affect strategy"
     );
-    teardown(&dir);
 }
 
 #[test]
 fn pack_output_same_session_twice_hits_delta() {
-    let dir = sandbox("pack-delta");
+    let _sb = EnvSandbox::new("pack-delta");
     let payload = b"identical output across two packs\nlinetwo\nlinethree\n".repeat(20);
 
     let r1 = pack_output(PackRequest {
@@ -105,12 +87,11 @@ fn pack_output_same_session_twice_hits_delta() {
     assert_eq!(r1.delta_hits, 0, "cold pack");
     assert!(r2.delta_hits > 0, "warm pack must record delta hits");
     assert!(r2.shown_tokens_est <= r1.shown_tokens_est, "warm view shouldn't grow");
-    teardown(&dir);
 }
 
 #[test]
 fn pack_output_different_sessions_isolate() {
-    let dir = sandbox("pack-isolate");
+    let _sb = EnvSandbox::new("pack-isolate");
     let payload = b"isolation test content\nlinetwo\nlinethree\n".repeat(20);
 
     let r1 = pack_output(PackRequest {
@@ -132,7 +113,6 @@ fn pack_output_different_sessions_isolate() {
     });
     assert_eq!(r1.delta_hits, 0);
     assert_eq!(r2.delta_hits, 0, "session-b is cold even though bytes match session-a");
-    teardown(&dir);
 }
 
 #[test]
@@ -140,7 +120,7 @@ fn pack_output_command_label_is_metadata_only() {
     // The command label is stored in metrics + meta sidecars for attribution;
     // it doesn't affect the compression result. Pack the same bytes with two
     // different command labels and check the view is identical.
-    let dir = sandbox("pack-cmd-label");
+    let _sb = EnvSandbox::new("pack-cmd-label");
     let payload = b"output for cmd-label test\nlinetwo\nlinethree\n".repeat(20);
     let r1 = pack_output(PackRequest {
         session_id: "cmd-label-1".into(),
@@ -161,12 +141,11 @@ fn pack_output_command_label_is_metadata_only() {
     // Same bytes, same content type, different session — views should be identical
     // (the command label doesn't shape compression).
     assert_eq!(r1.view, r2.view, "command label must not affect view");
-    teardown(&dir);
 }
 
 #[test]
 fn pack_output_empty_bytes() {
-    let dir = sandbox("pack-empty");
+    let _sb = EnvSandbox::new("pack-empty");
     let r = pack_output(PackRequest {
         session_id: "empty".into(),
         command: None,
@@ -178,12 +157,11 @@ fn pack_output_empty_bytes() {
     assert_eq!(r.raw_tokens_est, 0);
     assert_eq!(r.shown_tokens_est, 0);
     assert_eq!(r.blocks, 0);
-    teardown(&dir);
 }
 
 #[test]
 fn pack_output_with_missing_transcript_safe_fallback() {
-    let dir = sandbox("pack-missing-trans");
+    let _sb = EnvSandbox::new("pack-missing-trans");
     let r = pack_output(PackRequest {
         session_id: "trans-missing".into(),
         command: None,
@@ -194,14 +172,13 @@ fn pack_output_with_missing_transcript_safe_fallback() {
     });
     // Must succeed (safe fallback to ledger-only).
     assert!(r.raw_tokens_est > 0);
-    teardown(&dir);
 }
 
 // ---------- expand_handle: every ExpandRequest field ----------
 
 #[test]
 fn expand_handle_full_recall_is_byte_exact() {
-    let dir = sandbox("expand-full");
+    let _sb = EnvSandbox::new("expand-full");
     let payload = b"recall test content\nlinetwo\nlinethree\n".repeat(20);
     pack_output(PackRequest {
         session_id: "exp-full".into(),
@@ -235,12 +212,11 @@ fn expand_handle_full_recall_is_byte_exact() {
         Some(RecallOut::Text(_)) => panic!("full recall (no range/grep) must return Bytes"),
         None => panic!("handle {h} must resolve after warm pack"),
     }
-    teardown(&dir);
 }
 
 #[test]
 fn expand_handle_unknown_returns_none() {
-    let dir = sandbox("expand-unknown");
+    let _sb = EnvSandbox::new("expand-unknown");
     let out = expand_handle(ExpandRequest {
         handle: "ks2_00000000000000000000000000000000".into(),
         range: None,
@@ -249,12 +225,11 @@ fn expand_handle_unknown_returns_none() {
         session_id: "x".into(),
     });
     assert!(out.is_none());
-    teardown(&dir);
 }
 
 #[test]
 fn expand_handle_records_refetch_metric() {
-    let dir = sandbox("expand-metric");
+    let sb = EnvSandbox::new("expand-metric");
     let payload = b"metric attribution test\nlinetwo\nlinethree\n".repeat(20);
     pack_output(PackRequest {
         session_id: "exp-metric".into(),
@@ -283,16 +258,15 @@ fn expand_handle_records_refetch_metric() {
     });
 
     // metrics.jsonl should now contain an expand event.
-    let metrics = std::fs::read_to_string(dir.join("metrics.jsonl")).unwrap();
+    let metrics = std::fs::read_to_string(sb.join("metrics.jsonl")).unwrap();
     assert!(metrics.contains(r#""event":"expand""#), "expand event recorded");
-    teardown(&dir);
 }
 
 // ---------- record_residency / evict programmatic ledger ----------
 
 #[test]
 fn record_residency_then_evict_round_trip() {
-    let dir = sandbox("ledger-api");
+    let _sb = EnvSandbox::new("ledger-api");
     let session = "ledger-roundtrip";
     let handle = "ks2_deadbeefdeadbeefdeadbeefdeadbeef";
 
@@ -304,23 +278,21 @@ fn record_residency_then_evict_round_trip() {
     evict(session, &handle.to_string());
     let ledger2 = knapsack::Ledger::load(knapsack::config::session_path(session));
     assert_eq!(ledger2.residency(&handle.to_string()), knapsack::Residency::Evicted);
-    teardown(&dir);
 }
 
 #[test]
 fn record_residency_creates_session_file_if_missing() {
-    let dir = sandbox("ledger-create");
+    let _sb = EnvSandbox::new("ledger-create");
     let session = "newsess";
     let handle = "ks2_cafef00dcafef00dcafef00dcafef00d";
     record_residency(session, &handle.to_string(), 0);
     let p = knapsack::config::session_path(session);
     assert!(p.exists(), "ledger file must be created on first note");
-    teardown(&dir);
 }
 
 #[test]
 fn evict_on_unknown_session_silently_creates_then_no_ops() {
-    let dir = sandbox("evict-unknown");
+    let _sb = EnvSandbox::new("evict-unknown");
     let handle = "ks2_abcabcabcabcabcabcabcabcabcabcab";
     // Evict on a session that has no ledger. Current behavior: Ledger::load
     // returns an empty ledger, evict() on missing handle is a no-op, save()
@@ -331,5 +303,4 @@ fn evict_on_unknown_session_silently_creates_then_no_ops() {
     assert!(p.exists());
     let content = std::fs::read_to_string(&p).unwrap();
     assert!(content.is_empty(), "ledger from empty in-memory state is empty file");
-    teardown(&dir);
 }

@@ -4,6 +4,13 @@
 //!   --older-than huge, read_cache cleanup, legacy ks_ blocks untouched.
 //! - metrics: 10K events (perf), corrupt JSON lines in middle (skipped not fatal),
 //!   leading BOM, gigantic numbers, empty session strings.
+//!
+//! `metrics_*` tests mutate `KNAPSACK_METRICS` and are serialized via
+//! `common::EnvSandbox`. `gc_*` tests use explicit `Store::new(dir)` paths
+//! and don't need the lock — they parallelize freely.
+
+mod common;
+use common::EnvSandbox;
 
 use knapsack::gc;
 use knapsack::metrics;
@@ -93,9 +100,7 @@ fn gc_threshold_higher_than_oldest_block_age_is_noop() {
 
 #[test]
 fn metrics_handles_10k_compress_events() {
-    let dir = tmpdir("metrics-10k");
-    let metrics_path = dir.join("metrics.jsonl");
-    std::env::set_var("KNAPSACK_METRICS", &metrics_path);
+    let _sb = EnvSandbox::new("metrics-10k");
 
     let start = std::time::Instant::now();
     for i in 0..10_000 {
@@ -111,16 +116,12 @@ fn metrics_handles_10k_compress_events() {
 
     assert_eq!(summary.compress_events, 10_000);
     assert!(summary.raw > 0);
-
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn metrics_skips_corrupt_lines_keeps_valid_ones() {
-    let dir = tmpdir("metrics-corrupt");
-    let metrics_path = dir.join("metrics.jsonl");
-    std::env::set_var("KNAPSACK_METRICS", &metrics_path);
+    let sb = EnvSandbox::new("metrics-corrupt");
+    let metrics_path = sb.join("metrics.jsonl");
 
     let valid_line = r#"{"t":1700000000000.0,"event":"compress","session":"a","raw":100,"shown":50,"saved":50,"delta_hits":0,"evicted":0}"#;
     let content = format!("{valid_line}\nnot json at all\n{valid_line}\n{{ broken json\n{valid_line}\n");
@@ -130,32 +131,24 @@ fn metrics_skips_corrupt_lines_keeps_valid_ones() {
     assert_eq!(summary.compress_events, 3, "must count only the 3 valid lines, skip corrupt");
     assert_eq!(summary.raw, 300);
     assert_eq!(summary.saved, 150);
-
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn metrics_skips_lines_missing_event_field() {
-    let dir = tmpdir("metrics-no-event");
-    let metrics_path = dir.join("metrics.jsonl");
-    std::env::set_var("KNAPSACK_METRICS", &metrics_path);
+    let sb = EnvSandbox::new("metrics-no-event");
+    let metrics_path = sb.join("metrics.jsonl");
 
     let content = "{\"t\":1700000000.0}\n{\"random\":\"json\"}\n{\"event\":\"compress\",\"session\":\"x\",\"raw\":50,\"shown\":25,\"saved\":25,\"delta_hits\":0,\"evicted\":0}\n";
     std::fs::write(&metrics_path, content).unwrap();
 
     let summary = metrics::summary();
     assert_eq!(summary.compress_events, 1, "only the line with event=compress counts");
-
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn metrics_with_bom_at_start() {
-    let dir = tmpdir("metrics-bom");
-    let metrics_path = dir.join("metrics.jsonl");
-    std::env::set_var("KNAPSACK_METRICS", &metrics_path);
+    let sb = EnvSandbox::new("metrics-bom");
+    let metrics_path = sb.join("metrics.jsonl");
 
     let valid_line = r#"{"event":"compress","session":"a","raw":100,"shown":50,"saved":50,"delta_hits":0,"evicted":0}"#;
     // Write with leading BOM
@@ -170,16 +163,11 @@ fn metrics_with_bom_at_start() {
     // The first line gets the BOM smushed onto it — won't parse as JSON.
     // The second line is clean and should count. So we expect at least 1.
     assert!(summary.compress_events >= 1, "at least 1 line parses past the BOM");
-
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn metrics_huge_numeric_values_dont_overflow_reporter() {
-    let dir = tmpdir("metrics-huge-nums");
-    let metrics_path = dir.join("metrics.jsonl");
-    std::env::set_var("KNAPSACK_METRICS", &metrics_path);
+    let _sb = EnvSandbox::new("metrics-huge-nums");
 
     // Big but representable numbers
     metrics::record_compress("session-x", 1_000_000_000, 100_000, 999_900_000, 1_000_000, 0);
@@ -189,23 +177,15 @@ fn metrics_huge_numeric_values_dont_overflow_reporter() {
     assert_eq!(summary.compress_events, 2);
     assert_eq!(summary.raw, 2_000_000_000);
     assert_eq!(summary.saved, 1_999_800_000);
-
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn metrics_report_renders_for_empty_session_filter() {
-    let dir = tmpdir("metrics-empty-filter");
-    let metrics_path = dir.join("metrics.jsonl");
-    std::env::set_var("KNAPSACK_METRICS", &metrics_path);
+    let _sb = EnvSandbox::new("metrics-empty-filter");
 
     metrics::record_compress("real-session", 100, 50, 50, 0, 0);
     let report = metrics::report_for(Some(""));
     // No events match an empty session; should produce a "no data" verdict.
     assert!(report.contains("knapsack live stats"));
     assert!(report.contains("compress events"));
-
-    std::env::remove_var("KNAPSACK_METRICS");
-    let _ = std::fs::remove_dir_all(&dir);
 }

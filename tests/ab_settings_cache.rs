@@ -5,7 +5,10 @@
 //! - install: edge-case settings.json shapes the previous adversarial pass
 //!   didn't hit (multiple stale hooks, very large existing config).
 //! - read cache: pack many files via the Read hook, verify gc cleans them
-//!   and the per-file size cap holds.
+//!   and the per-file size cap holds. Parallel-safe via `common::EnvSandbox`.
+
+mod common;
+use common::EnvSandbox;
 
 use knapsack::ab;
 use knapsack::install::{patch_settings_file, settings_has_hook, unpatch_settings_file, Patch};
@@ -268,17 +271,13 @@ fn read_cache_does_not_grow_unboundedly_per_file_content() {
     use knapsack::read_hook::decide_with_gate;
     use knapsack::json::Json;
 
-    let dir = tmpfile("cache-dedup");
-    std::fs::create_dir_all(&dir).unwrap();
-    let src = dir.join("src.rs");
+    let sb = EnvSandbox::new("cache-dedup");
+    let src = sb.join("src.rs");
     // Use this project's install.rs (~32KB, known to compress) as the fixture
     // so the redirect threshold is comfortably met.
     let real_src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/install.rs");
     let content = std::fs::read(&real_src).expect("install.rs must exist for this test");
     std::fs::write(&src, &content).unwrap();
-
-    std::env::set_var("KNAPSACK_READ_CACHE", dir.join("cache"));
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
 
     // 10 reads of the SAME (content, path) should produce 1 cache file.
     for _ in 0..10 {
@@ -291,16 +290,12 @@ fn read_cache_does_not_grow_unboundedly_per_file_content() {
         let _ = decide_with_gate(true, &evt);
     }
 
-    let cache_files: Vec<_> = std::fs::read_dir(dir.join("cache"))
+    let cache_files: Vec<_> = std::fs::read_dir(sb.join("read_cache"))
         .unwrap()
         .filter_map(|e| e.ok())
         .collect();
     assert_eq!(cache_files.len(), 1, "10 reads of same content+path → 1 cache file, got {}",
         cache_files.len());
-
-    std::env::remove_var("KNAPSACK_READ_CACHE");
-    std::env::remove_var("KNAPSACK_STORE");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -312,11 +307,8 @@ fn read_cache_grows_with_file_changes_but_gc_can_clean() {
     use knapsack::json::Json;
     use knapsack::store::Store;
 
-    let dir = tmpfile("cache-gc");
-    std::fs::create_dir_all(&dir).unwrap();
-    let src = dir.join("src.rs");
-    std::env::set_var("KNAPSACK_READ_CACHE", dir.join("cache"));
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
+    let sb = EnvSandbox::new("cache-gc");
+    let src = sb.join("src.rs");
 
     // 5 different content versions of the same path → 5 cache files.
     // Use real install.rs (≈32KB, compresses well) so the redirect threshold
@@ -334,18 +326,13 @@ fn read_cache_grows_with_file_changes_but_gc_can_clean() {
         ]);
         let _ = decide_with_gate(true, &evt);
     }
-    let cache_dir = dir.join("cache");
-    let before_files = std::fs::read_dir(&cache_dir).unwrap().count();
+    let before_files = std::fs::read_dir(sb.join("read_cache")).unwrap().count();
     assert!(before_files >= 5, "expected 5+ cache files (one per content sha), got {before_files}");
 
     // gc should clean them (threshold 0 = everything past 0 seconds)
     std::thread::sleep(std::time::Duration::from_millis(1100));
-    let store = Store::new(dir.join("store"));
+    let store = Store::new(sb.join("store"));
     let report = gc::gc(&store, 0, false);
     assert!(report.read_cache_deleted > 0, "gc must delete some cache files; got {} deleted of {} scanned",
         report.read_cache_deleted, report.read_cache_scanned);
-
-    std::env::remove_var("KNAPSACK_READ_CACHE");
-    std::env::remove_var("KNAPSACK_STORE");
-    let _ = std::fs::remove_dir_all(&dir);
 }

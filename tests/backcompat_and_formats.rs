@@ -3,12 +3,17 @@
 //! doctor, metrics, why-last, ab). Lots of grep-pinning here — a refactor
 //! that changes any of these strings will fail and force a conscious
 //! re-pinning rather than silently breaking scripts that grep the output.
+//!
+//! Format-stability tests below use `common::EnvSandbox` for parallel safety;
+//! the legacy-handle tests above use direct `Store::new(dir)` and don't need it.
+
+mod common;
+use common::EnvSandbox;
 
 use knapsack::api::ExpandRequest;
 use knapsack::hash::sha1_hex;
 use knapsack::sha256::sha256_hex;
 use knapsack::store::Store;
-use std::path::PathBuf;
 
 fn tmpstore(tag: &str) -> Store {
     let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
@@ -131,41 +136,30 @@ fn corrupt_sharded_falls_back_to_valid_flat() {
 
 // ---------- output format stability (status / doctor / metrics / why-last) ----------
 
-fn sandbox_env(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("kn-fmt-{}-{}-{}", tag, std::process::id(), t));
-    std::fs::create_dir_all(&dir).unwrap();
-    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
-    std::env::set_var("KNAPSACK_SESSIONS", dir.join("sessions"));
-    std::env::set_var("KNAPSACK_METRICS", dir.join("metrics.jsonl"));
-    std::env::set_var("KNAPSACK_SETTINGS", dir.join("settings.json"));
-    std::env::set_var("KNAPSACK_MCP_CONFIG", dir.join(".claude.json"));
-    std::fs::write(dir.join("settings.json"), "{}").unwrap();
-    std::fs::write(dir.join(".claude.json"), "{}").unwrap();
-    dir
-}
-
-fn teardown_env(dir: &PathBuf) {
-    for v in ["KNAPSACK_STORE", "KNAPSACK_SESSIONS", "KNAPSACK_METRICS", "KNAPSACK_SETTINGS", "KNAPSACK_MCP_CONFIG"] {
-        std::env::remove_var(v);
-    }
-    let _ = std::fs::remove_dir_all(dir);
+fn sandbox_env(tag: &str) -> EnvSandbox {
+    let mut sb = EnvSandbox::new(tag);
+    let settings = sb.join("settings.json");
+    let mcp = sb.join(".claude.json");
+    std::fs::write(&settings, "{}").unwrap();
+    std::fs::write(&mcp, "{}").unwrap();
+    sb.set("KNAPSACK_SETTINGS", settings);
+    sb.set("KNAPSACK_MCP_CONFIG", mcp);
+    sb
 }
 
 #[test]
 fn status_inactive_shape_is_pinned() {
-    let dir = sandbox_env("status-inactive");
+    let _sb = sandbox_env("status-inactive");
     let report = knapsack::status::report();
     // Pin the exact user-facing strings; refactors that change these break
     // anyone scripting against the output.
     assert!(report.contains("Knapsack inactive"), "got:\n{report}");
     assert!(report.contains("knapsack install"), "advises install: \n{report}");
-    teardown_env(&dir);
 }
 
 #[test]
 fn metrics_report_baseline_shape() {
-    let dir = sandbox_env("metrics-fmt");
+    let _sb = sandbox_env("metrics-fmt");
     let report = knapsack::metrics::report();
     // Pinned column labels — scripts may parse these.
     for label in [
@@ -183,20 +177,18 @@ fn metrics_report_baseline_shape() {
     ] {
         assert!(report.contains(label), "metrics must contain {label:?}:\n{report}");
     }
-    teardown_env(&dir);
 }
 
 #[test]
 fn metrics_verdict_no_data_message() {
-    let dir = sandbox_env("metrics-nodata");
+    let _sb = sandbox_env("metrics-nodata");
     let report = knapsack::metrics::report();
     assert!(report.contains("no data yet"), "empty-state verdict pinned");
-    teardown_env(&dir);
 }
 
 #[test]
 fn doctor_output_has_each_check_line() {
-    let dir = sandbox_env("doctor-fmt");
+    let _sb = sandbox_env("doctor-fmt");
     let report = knapsack::install::doctor();
     for label in [
         "binary found",
@@ -209,12 +201,11 @@ fn doctor_output_has_each_check_line() {
     ] {
         assert!(report.contains(label), "doctor must report '{label}':\n{report}");
     }
-    teardown_env(&dir);
 }
 
 #[test]
 fn doctor_uses_unicode_status_markers() {
-    let dir = sandbox_env("doctor-markers");
+    let _sb = sandbox_env("doctor-markers");
     let report = knapsack::install::doctor();
     // ✓ (green), • (warn), ✗ (fail) — these markers are part of the visible
     // surface; tests that grep for them shouldn't silently break.
@@ -222,12 +213,11 @@ fn doctor_uses_unicode_status_markers() {
         report.contains('✓') || report.contains('•') || report.contains('✗'),
         "doctor must use Unicode status markers:\n{report}"
     );
-    teardown_env(&dir);
 }
 
 #[test]
 fn metrics_per_session_filter_shape_matches_overall() {
-    let dir = sandbox_env("metrics-per-session");
+    let _sb = sandbox_env("metrics-per-session");
     let overall = knapsack::metrics::report();
     let filtered = knapsack::metrics::report_for(Some("nonexistent"));
     // Both must contain the same column labels — only the numbers differ.
@@ -235,14 +225,13 @@ fn metrics_per_session_filter_shape_matches_overall() {
         assert!(overall.contains(label));
         assert!(filtered.contains(label));
     }
-    teardown_env(&dir);
 }
 
 // ---------- expand: unknown handle error path attribution ----------
 
 #[test]
 fn expand_on_unknown_handle_records_failed_expand_metric() {
-    let dir = sandbox_env("expand-fail-metric");
+    let sb = sandbox_env("expand-fail-metric");
     let req = ExpandRequest {
         handle: "ks2_00000000000000000000000000000000".into(),
         range: None,
@@ -253,7 +242,7 @@ fn expand_on_unknown_handle_records_failed_expand_metric() {
     let out = knapsack::api::expand_handle(req);
     assert!(out.is_none());
     // Metric should record a failed expand attempt.
-    let metrics_path = dir.join("metrics.jsonl");
+    let metrics_path = sb.join("metrics.jsonl");
     if metrics_path.exists() {
         let content = std::fs::read_to_string(&metrics_path).unwrap();
         assert!(
@@ -261,7 +250,6 @@ fn expand_on_unknown_handle_records_failed_expand_metric() {
             "failed expand should be recorded OR be a no-op; got: {content}"
         );
     }
-    teardown_env(&dir);
 }
 
 // ---------- handle for the same content from two sessions: dedup ----------
