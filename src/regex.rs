@@ -57,10 +57,18 @@ impl Regex {
     }
 
     pub fn new_ignore_case(pattern: &str) -> Result<Self, String> {
-        // Full-Unicode lowercasing of the pattern STRING up-front (e.g. `CAFÉ` → `café`
-        // including the diacritic), so the matcher only has to do ASCII work on literal
-        // chars. Matching also lowercases the input — see `is_match`.
-        let lowered = pattern.to_lowercase();
+        // Smart-lowercase: lowercases LITERAL chars but preserves backslash escape
+        // sequences verbatim. Case matters for shorthand classes (`\D` ≠ `\d`,
+        // `\W` ≠ `\w`, `\S` ≠ `\s`, `\B` ≠ `\b`), so a naive `pattern.to_lowercase()`
+        // would silently swap `\D` for `\d` — turning "non-digit class" into "digit
+        // class", the opposite semantics. The bug surfaced via dogfood: a user
+        // typing `knapsack_expand grep="[\D]+"` (asking for runs of non-digits)
+        // got matches against digit runs instead. Fix preserves the escape so the
+        // class shorthand reaches compile_class with its case intact, which then
+        // errors loudly (we don't support negated shorthand inside `[...]`), and
+        // recall.rs::LineMatcher falls back to substring matching — the documented
+        // safe fallback for unsupported metachars.
+        let lowered = smart_lowercase_pattern(pattern);
         let mut me = Self::compile(&lowered, false)?;
         me.ignore_case = true;
         Ok(me)
@@ -179,6 +187,16 @@ fn compile_class(chars: &[char], ignore_case: bool) -> Result<(Kind, usize), Str
     let mut ranges: Vec<(char, char)> = Vec::new();
     while i < chars.len() && chars[i] != ']' {
         // Backslash inside class: support \d \w \s and literal escapes.
+        // Negated shorthand classes (\D \W \S) inside a character class are
+        // EXPLICITLY rejected so the caller falls back to substring matching
+        // instead of silently getting wrong matches. The set-arithmetic to
+        // honor `[\D]` correctly (= "any char not in [0-9]") would require
+        // either inverting ranges across the full Unicode codespace or a
+        // post-compile negation pass; both are bigger surface than is worth
+        // for a tiny grep subset. Returning Err here is the SAFE answer:
+        // recall.rs::LineMatcher::build catches the compile error and
+        // routes to case-insensitive substring matching, so the user's
+        // search still works — just literally instead of by class.
         if chars[i] == '\\' {
             if i + 1 >= chars.len() {
                 return Err("trailing backslash in class".into());
@@ -188,6 +206,13 @@ fn compile_class(chars: &[char], ignore_case: bool) -> Result<(Kind, usize), Str
                 'd' => ranges.push(('0', '9')),
                 'w' => ranges.extend(word_ranges()),
                 's' => ranges.extend(space_ranges()),
+                'D' | 'W' | 'S' => {
+                    return Err(format!(
+                        "negated shorthand `\\{}` inside [...] is not supported; \
+                         use [^...] explicitly (e.g. `[^0-9]` instead of `[\\D]`)",
+                        n
+                    ));
+                }
                 esc => ranges.push((maybe_lower(esc, ignore_case), maybe_lower(esc, ignore_case))),
             }
             i += 2;
@@ -222,6 +247,34 @@ fn maybe_lower(c: char, lower: bool) -> char {
     } else {
         c
     }
+}
+
+/// Lowercase a regex pattern char-by-char, but preserve every `\X` escape
+/// sequence verbatim — the second char of an escape determines semantics
+/// (`\d` is a digit class but `\D` is its negation), so flipping its case
+/// silently flips the meaning. A naive `pattern.to_lowercase()` turns
+/// `[\D]+` into `[\d]+` (opposite class), which `compile_class` then accepts
+/// as a digit class — the user's "non-digit" search silently matches digits.
+///
+/// Preserves trailing `\` verbatim so `compile_atom` can return its
+/// "trailing backslash" error rather than have us silently absorb it.
+fn smart_lowercase_pattern(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len());
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '\\' && i + 1 < chars.len() {
+            out.push('\\');
+            out.push(chars[i + 1]);
+            i += 2;
+        } else {
+            for c in chars[i].to_lowercase() {
+                out.push(c);
+            }
+            i += 1;
+        }
+    }
+    out
 }
 
 fn match_here(items: &[Item], text: &str) -> bool {

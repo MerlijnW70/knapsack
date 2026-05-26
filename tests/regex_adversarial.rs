@@ -166,15 +166,90 @@ fn shorthand_classes_inside_brackets() {
 }
 
 #[test]
-fn negated_shorthand_inside_brackets_silently_loses_negation() {
-    // Looking at compile_class: `\d` inside [] adds ('0','9'). `\D` is not
-    // handled — falls through to the `esc => ranges.push((maybe_lower(esc),...))`
-    // path, which treats `D` as a literal char. So [\D] matches literal 'D'.
-    // Pin this surprising-but-documented behavior; a stricter parse would
-    // require error on \D inside class which is a stricter break for callers.
-    let re = r("[\\D]");
-    assert!(re.is_match("D"), "\\D inside class is treated as literal D");
-    assert!(!re.is_match("X"));
+fn negated_shorthand_inside_brackets_errors_so_caller_falls_back() {
+    // Pre-fix: `[\D]` silently compiled as a class containing only the literal
+    // char `D`, so a user typing `[\D]+` expecting "non-digit runs" got only
+    // matches against literal 'D' — a serious silent-misparse.
+    //
+    // Post-fix: compile_class explicitly rejects \D, \W, \S inside `[...]`
+    // with a clear error naming the unsupported metachar. recall.rs's
+    // LineMatcher::build catches the compile error and routes to substring
+    // matching (the documented fallback contract), so the user's search
+    // still works — just literally instead of by class.
+    //
+    // To actually support `[\D]` semantically we'd need to invert ranges
+    // across the full Unicode codespace, which is a bigger surface than is
+    // worth for a grep subset. The error-and-fallback path is the right
+    // safety/scope trade-off; pin it.
+    let err = Regex::new("[\\D]").unwrap_err();
+    assert!(
+        err.contains("\\D") && err.contains("[^"),
+        "error must name the metachar AND point at the alternative; got: {err}"
+    );
+    for pat in ["[\\D]", "[\\W]", "[\\S]", "[abc\\D]", "[\\d\\D]"] {
+        assert!(
+            Regex::new(pat).is_err(),
+            "{pat:?} must error so caller falls back to substring"
+        );
+    }
+}
+
+#[test]
+fn fallback_path_via_caller_keeps_search_usable() {
+    // Verify the END-TO-END contract: when the regex can't compile, the
+    // user's grep STILL finds matches via substring fallback. We exercise
+    // this through `knapsack expand --grep <pattern>` (which uses
+    // recall.rs::LineMatcher) via the binary — that's the actual user
+    // surface the fix protects.
+    use std::process::{Command, Stdio};
+
+    // Find the release binary (this test only runs after `cargo build`).
+    let bin = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join(if cfg!(debug_assertions) { "debug" } else { "release" })
+        .join(if cfg!(windows) { "knapsack.exe" } else { "knapsack" });
+    if !bin.exists() {
+        eprintln!("skipping fallback integration test: {} not built", bin.display());
+        return;
+    }
+    // Seed a small payload via `store put`, then grep for a pattern that
+    // would COMPILE in a strict regex (`[\D]+`) but in our subset rejects —
+    // recall.rs must fall back to substring matching the LITERAL string
+    // `[\D]+`. We use a payload that contains that literal string to confirm
+    // the substring fallback works.
+    let dir = std::env::temp_dir().join(format!("kn-regex-fb-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("seed.txt");
+    std::fs::write(&src, "line one\nliteral [\\D]+ marker line\nline three\n").unwrap();
+
+    let put = Command::new(&bin)
+        .args(["store", "put", src.to_str().unwrap()])
+        .env("KNAPSACK_STORE", dir.join("store"))
+        .output()
+        .expect("spawn put");
+    assert!(put.status.success());
+    let handle = String::from_utf8_lossy(&put.stdout).trim().to_string();
+
+    // Grep for the LITERAL string "[\\D]+". recall.rs first tries Regex::new
+    // (which now errors thanks to our fix), then falls back to case-insensitive
+    // substring matching against the literal pattern.
+    let exp = Command::new(&bin)
+        .args(["expand", &handle, "--grep", "[\\D]+"])
+        .env("KNAPSACK_STORE", dir.join("store"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn expand");
+    assert!(exp.status.success(), "expand should succeed via substring fallback; stderr:\n{}",
+        String::from_utf8_lossy(&exp.stderr));
+    let out = String::from_utf8_lossy(&exp.stdout);
+    assert!(
+        out.contains("literal [\\D]+ marker line"),
+        "substring fallback must find the literal `[\\D]+` line; got:\n{out}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ---------- unsupported metachars (must error cleanly so callers fall back) ----------
@@ -282,6 +357,62 @@ fn ignore_case_with_unicode() {
     assert!(re.is_match("café"));
     assert!(re.is_match("CAFÉ"));
     assert!(re.is_match("Café"));
+}
+
+#[test]
+fn ignore_case_preserves_negated_shorthand_class_semantics() {
+    // The real bug behind the `[\D]` issue: `Regex::new_ignore_case` used to
+    // lowercase the WHOLE pattern up-front, silently flipping `\D` (non-digit)
+    // to `\d` (digit) — the OPPOSITE semantics. Now `new_ignore_case` uses
+    // `smart_lowercase_pattern` which preserves backslash escapes verbatim.
+    //
+    // Outside `[...]`, our regex supports both \D and \d. After the fix,
+    // `\D+` (ignore-case) must still mean "one-or-more non-digit chars",
+    // NOT "one-or-more digit chars".
+    let non_digit_re = Regex::new_ignore_case("\\D+").unwrap();
+    assert!(non_digit_re.is_match("hello"), "\\D+ must match non-digit runs");
+    assert!(!non_digit_re.is_match("123"), "\\D+ must NOT match digit-only");
+    // The opposite class still works case-insensitively.
+    let digit_re = Regex::new_ignore_case("\\d+").unwrap();
+    assert!(digit_re.is_match("123"));
+    assert!(!digit_re.is_match("hello"));
+    // \W \w pair
+    let non_word_re = Regex::new_ignore_case("\\W+").unwrap();
+    assert!(non_word_re.is_match("   "));
+    assert!(!non_word_re.is_match("abc_123"));
+    let word_re = Regex::new_ignore_case("\\w+").unwrap();
+    assert!(word_re.is_match("abc_123"));
+    assert!(!word_re.is_match("   "));
+    // \S \s pair
+    let non_space_re = Regex::new_ignore_case("\\S+").unwrap();
+    assert!(non_space_re.is_match("hello"));
+    assert!(!non_space_re.is_match("   "));
+    let space_re = Regex::new_ignore_case("\\s+").unwrap();
+    assert!(space_re.is_match("a b"));
+    assert!(!space_re.is_match("abc"));
+}
+
+#[test]
+fn ignore_case_still_lowercases_literal_chars() {
+    // Regression guard for the smart_lowercase_pattern fix: literal chars in
+    // the pattern MUST still be lowercased (so `ABC` matches `abc`). Only the
+    // char immediately following a `\` is preserved.
+    let re = Regex::new_ignore_case("HELLO").unwrap();
+    assert!(re.is_match("hello"), "literal CAPS still lowercased for case-insensitive match");
+    assert!(re.is_match("Hello"));
+    assert!(re.is_match("HELLO"));
+}
+
+#[test]
+fn ignore_case_with_mixed_literal_and_escape() {
+    // `ABC\D+` ignore-case = "literal abc (any case) + non-digit runs".
+    // Pattern after smart-lowercase: `abc\D+`. Compile succeeds; \D outside
+    // class is supported. Test that BOTH the literal-lowercase AND the
+    // escape-preservation co-exist correctly.
+    let re = Regex::new_ignore_case("ABC\\D+").unwrap();
+    assert!(re.is_match("ABCdef"));
+    assert!(re.is_match("abcXYZ"));
+    assert!(!re.is_match("ABC123"), "after ABC must be non-digit chars; 123 fails");
 }
 
 // ---------- perf / ReDoS guards ----------
