@@ -608,6 +608,26 @@ fn run_pack_doc(path: &str, rest: &[String]) {
     let r = knapsack::pack_doc::pack_doc(path, &bytes, &store);
 
     let out_path = output_override.unwrap_or_else(|| knapsack::pack_doc::sidecar_path(std::path::Path::new(path)));
+
+    // SAFETY: the pack contract says "never mutates the original file by default."
+    // `--output` was a side-channel around that — pointing it at the source path
+    // (directly, via a symlink, or via a case-insensitive Windows filename)
+    // would silently overwrite the user's original document with the packed
+    // view. We canonicalize both sides; if they resolve to the same on-disk
+    // file, refuse loudly. (Canonicalize can fail when out_path doesn't exist
+    // yet, which is exactly the safe case — no existing file to overwrite.)
+    if let (Ok(src_canon), Ok(out_canon)) =
+        (std::fs::canonicalize(path), std::fs::canonicalize(&out_path))
+    {
+        if src_canon == out_canon {
+            eprintln!(
+                "knapsack: --output {} points at the SAME file as the source. Packing would overwrite the original document. Pass a different --output path (or omit --output to use the default side-car `<name>.knapsack.<ext>`).",
+                out_path.display()
+            );
+            exit(4);
+        }
+    }
+
     let saved = r.raw_tokens as i64 - r.packed_tokens as i64;
     let is_smaller = r.packed_tokens < r.raw_tokens;
 

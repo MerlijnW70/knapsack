@@ -485,6 +485,106 @@ fn inspect_accepts_file_with_only_ks_pack_header_zero_elisions() {
 }
 
 #[test]
+fn pack_refuses_when_output_path_equals_source_path() {
+    // Dogfood-found safety bug: --output pointing at the SAME file as the
+    // source silently overwrote the original. The pack contract says "never
+    // mutates the original file by default" — --output was the loophole.
+    // Now: refuse with exit 4 and a clear message naming both the unsafe
+    // path and the safe alternative.
+    let dir = tmpdir("output-same-as-source");
+    let src = dir.join("CLAUDE.md");
+    let original_text = realistic_memory_fixture();
+    write_file(&src, &original_text);
+    let original_sha = sha256_text(&std::fs::read_to_string(&src).unwrap());
+
+    let bin = knapsack_bin();
+    if !bin.exists() { return; }
+
+    // --output points at the SAME file as the source.
+    let out = std::process::Command::new(&bin)
+        .args(["pack", src.to_str().unwrap(), "--output", src.to_str().unwrap(), "--force"])
+        .env("KNAPSACK_STORE", dir.join("store"))
+        .env("KNAPSACK_METRICS", dir.join("metrics.jsonl"))
+        .output()
+        .expect("spawn knapsack pack");
+
+    assert!(!out.status.success(), "must reject same-file --output (exit non-zero)");
+    let code = out.status.code().unwrap_or(-1);
+    assert_eq!(code, 4, "exit code must be 4 (distinct from --force-refuse=3 / parser=2)");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("SAME file") || stderr.contains("same file"),
+        "stderr must explain the conflict; got: {stderr}"
+    );
+
+    // Critical: the source file MUST be unchanged. Original byte-exact.
+    let after_text = std::fs::read_to_string(&src).unwrap();
+    let after_sha = sha256_text(&after_text);
+    assert_eq!(original_sha, after_sha, "source file must be untouched by a refused pack");
+    assert_eq!(after_text, original_text, "source content byte-identical to before");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn pack_with_default_sidecar_path_still_works_after_safety_guard() {
+    // Regression guard: the safety check above must NOT block the common case
+    // where --output is omitted (default side-car path) — which is naturally
+    // different from the source path.
+    let dir = tmpdir("default-sidecar-still-works");
+    let src = dir.join("CLAUDE.md");
+    write_file(&src, &realistic_memory_fixture());
+
+    let bin = knapsack_bin();
+    if !bin.exists() { return; }
+
+    let out = std::process::Command::new(&bin)
+        .args(["pack", src.to_str().unwrap(), "--force"])
+        .env("KNAPSACK_STORE", dir.join("store"))
+        .env("KNAPSACK_METRICS", dir.join("metrics.jsonl"))
+        .output()
+        .expect("spawn knapsack pack");
+
+    assert!(out.status.success(), "default-sidecar pack must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr));
+    let sidecar = dir.join("CLAUDE.knapsack.md");
+    assert!(sidecar.exists(), "side-car written at default path");
+    // And the source is still untouched.
+    assert!(src.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn pack_with_different_output_path_works_normally() {
+    // Regression guard #2: --output to a DIFFERENT path must continue to work.
+    let dir = tmpdir("different-output-still-works");
+    let src = dir.join("CLAUDE.md");
+    write_file(&src, &realistic_memory_fixture());
+    let custom_out = dir.join("custom-name.md");
+
+    let bin = knapsack_bin();
+    if !bin.exists() { return; }
+
+    let out = std::process::Command::new(&bin)
+        .args(["pack", src.to_str().unwrap(), "--output", custom_out.to_str().unwrap(), "--force"])
+        .env("KNAPSACK_STORE", dir.join("store"))
+        .env("KNAPSACK_METRICS", dir.join("metrics.jsonl"))
+        .output()
+        .expect("spawn knapsack pack");
+
+    assert!(out.status.success(), "--output to a different path must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr));
+    assert!(custom_out.exists(), "custom output path written");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Small helper: SHA-256 of a string. Stays inside this test file because
+/// only these new tests need it. Uses the library's hand-rolled SHA-256.
+fn sha256_text(s: &str) -> String {
+    knapsack::sha256::sha256_hex(s.as_bytes())
+}
+
+#[test]
 fn inspect_falls_through_to_handle_mode_when_arg_is_not_a_file() {
     // Preserves the historical CLI: `knapsack inspect <handle>` still hits the store.
     // We pass a WELL-FORMED legacy handle that just happens not to be stored — that
