@@ -122,15 +122,25 @@ echo "  $GC" | head -3
 if [ "${deleted:-0}" = "0" ]; then ok "GC dry-run found no stale blocks"; else no "GC reported $deleted deletions"; fi
 
 say "T8: /knapsack — does the surface reflect real session data?"
+# Default surface is the compact, user-facing summary; the Store line + Lifetime
+# footer live under --verbose. We capture both so this test can verify the
+# user-facing strings AND the engineer-facing detail without re-running the binary
+# (cheaper, and keeps the assertions co-located).
 STATUS=$( "$KS" )
+STATUS_V=$( "$KS" status --verbose )
 echo "$STATUS" | sed 's/^/  | /'
-if echo "$STATUS" | grep -q "Knapsack active"; then ok "status header active"; else no "status header not active"; fi
-if echo "$STATUS" | grep -q "Input reduction:  active"; then ok "input reduction active"; else no "input reduction not active"; fi
-if echo "$STATUS" | grep -q "Output reduction: active"; then ok "output reduction active"; else no "output reduction not active"; fi
-if echo "$STATUS" | grep -qE "Session saved: +[0-9,]+ tokens"; then ok "shows real session_saved tokens"; else no "no session_saved figure"; fi
-if echo "$STATUS" | grep -qE "Net reduction: +[0-9]+%"; then ok "shows real net reduction %"; else no "no net reduction figure"; fi
-if echo "$STATUS" | grep -qE "Store: +[0-9,]+ blocks"; then ok "store has blocks"; else no "store is empty"; fi
-if echo "$STATUS" | grep -q "Recall:           healthy"; then ok "recall healthy"; else no "recall not healthy"; fi
+# Header is state-driven: "saving context" (net>0) / "active" (net<=0 with work) /
+# "ready" (no activity). T1-T6 packed several blobs into this session so we expect
+# "saving context" — but allow "active" (e.g. if MCP recall pushed net non-positive).
+if echo "$STATUS" | grep -qE "Knapsack is (saving context|active)"; then ok "status header reflects activity"; else no "status header not active"; fi
+if echo "$STATUS" | grep -q "Input reduction:    active"; then ok "input reduction active"; else no "input reduction not active"; fi
+if echo "$STATUS" | grep -q "Output reduction:   active"; then ok "output reduction active"; else no "output reduction not active"; fi
+if echo "$STATUS" | grep -qE "Saved this session: +[0-9,]+ tokens"; then ok "shows real session saved tokens"; else no "no session_saved figure"; fi
+# Reduction may be negative honestly (the spec allows it); -? in the regex.
+if echo "$STATUS" | grep -qE "Reduction: +-?[0-9]+%"; then ok "shows real reduction %"; else no "no reduction figure"; fi
+# Store moved to --verbose; the assertion follows.
+if echo "$STATUS_V" | grep -qE "Store: +[0-9,]+ blocks"; then ok "store has blocks (verbose)"; else no "store is empty"; fi
+if echo "$STATUS" | grep -q "Recall:             healthy"; then ok "recall healthy"; else no "recall not healthy"; fi
 
 say "T9: MCP expand a stored handle (drives the MCP path the way Claude would)"
 if [ -n "$HANDLE" ]; then
@@ -155,7 +165,7 @@ if [ "$N_EVENTS" -ge 3 ]; then ok "metrics JSONL has events for every pack"; els
 NET=$( "$KS" ab --knapsack "$KNAPSACK_METRICS" 2>&1 \
        | awk '/^[[:space:]]+dogfood-real/ { gsub(",","",$5); print $5 }' )
 echo "  ab reports net saved: $NET"
-SURFACE_NET=$(echo "$STATUS" | grep "Session saved:" | grep -oE '[0-9,]+' | tr -d ',')
+SURFACE_NET=$(echo "$STATUS" | grep "Saved this session:" | grep -oE '[0-9,]+' | tr -d ',')
 echo "  /knapsack reports:    $SURFACE_NET"
 if [ -n "$NET" ] && [ -n "$SURFACE_NET" ] && [ "$NET" = "$SURFACE_NET" ]; then
   ok "ab and /knapsack agree on session net ($NET tokens)"

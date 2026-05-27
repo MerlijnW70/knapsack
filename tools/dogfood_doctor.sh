@@ -37,7 +37,7 @@ cat > "$H/.claude/settings.json" <<EOF
 {
   "hooks": {
     "PreToolUse": [
-      {"matcher":"Bash","hooks":[{"type":"command","command":"\"$KSB\" hook"}]}
+      {"matcher":"Bash|Read","hooks":[{"type":"command","command":"\"$KSB\" hook"}]}
     ]
   }
 }
@@ -47,6 +47,10 @@ cat > "$H/.claude.json" <<EOF
 EOF
 DOC=$(run_doctor "$H")
 echo "$DOC" | tail -3 | sed 's/^/    | /'
+# Doctor enforces the canonical `Bash|Read` matcher (input + output reduction).
+# Pre-fix this fixture wrote `matcher:"Bash"` only — legacy single-tool form —
+# and doctor correctly reported Unhealthy. The fixture, not the binary, was the
+# stale party; updated to the current contract.
 if echo "$DOC" | grep -q "Healthy ✓"; then ok "fresh install -> healthy"; else no "fresh install not healthy"; fi
 if grep -q "panicked" "$H/err.log" 2>/dev/null; then no "panic on fresh install"; else ok "no panic"; fi
 

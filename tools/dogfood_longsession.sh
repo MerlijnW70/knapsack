@@ -177,8 +177,8 @@ echo
 echo "[verification] /knapsack reads honestly"
 STATUS=$("$KS")
 echo "$STATUS" | sed 's/^/  | /'
-SAVED=$(echo "$STATUS" | grep "Session saved:" | grep -oE '[0-9,]+' | head -1 | tr -d ',')
-PCT=$(echo "$STATUS" | grep "Net reduction:" | grep -oE '[0-9]+%')
+SAVED=$(echo "$STATUS" | grep "Saved this session:" | grep -oE '[0-9,]+' | head -1 | tr -d ',')
+PCT=$(echo "$STATUS" | grep -E "Reduction: +-?[0-9]+%" | grep -oE '\-?[0-9]+%')
 if [ -n "$SAVED" ] && [ "$SAVED" -gt 0 ]; then
   ok "session saved is positive: $SAVED tokens ($PCT)"
 else

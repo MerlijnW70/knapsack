@@ -116,11 +116,14 @@ if [ "$RC" -ne 0 ]; then
 else
   no "expand returned 0 with missing store (rc=$RC, body: ${EX:0:60})"
 fi
-# Status should still work (the store path is just empty/missing).
+# Status should still work (the store path is just empty/missing). The Store line
+# itself moved to `status --verbose` — default surface stays compact. We capture
+# verbose here because the assertion specifically wants to read the Store value.
 STAT=$( "$KS" 2>&1 )
-if echo "$STAT" | grep -qE "Store: +(empty|0 blocks)"; then ok "/knapsack reports empty store"; else
+STAT_V=$( "$KS" status --verbose 2>&1 )
+if echo "$STAT_V" | grep -qE "Store: +(empty|0 blocks)"; then ok "/knapsack --verbose reports empty store"; else
   # Might still report old count if it cached
-  echo "  ($STAT)" | head -5 | sed 's/^/    | /'
+  echo "  ($STAT_V)" | head -5 | sed 's/^/    | /'
 fi
 
 # Restore store dir for next test
