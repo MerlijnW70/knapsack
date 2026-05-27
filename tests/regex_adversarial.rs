@@ -430,11 +430,30 @@ fn redos_a_star_repeated_terminates_quickly() {
 
 #[test]
 fn redos_dot_star_then_literal_terminates() {
-    // `.*.*X` on long non-X input. Greedy `.*` consumes everything; backs off
-    // to find X; backs off again. Should be ~linear in input length.
+    // `.*.*X` on long non-X input. Greedy `.*` builds an offsets array and
+    // backs off byte-by-byte; the unanchored outer `is_match` retries at every
+    // starting position. The failure scan is therefore O(N³) — polynomial,
+    // *not* exponential. That's what this perf guard is here to enforce:
+    // a refactor that drops the offsets memoization or introduces catastrophic
+    // backtracking would push N=500 to seconds-per-iteration, blowing past
+    // either cap below by orders of magnitude.
+    //
+    // The caps split by build profile. CI runs `cargo test --release`
+    // (.github/workflows/ci.yml), where LTO + opt 3 keep the O(N³) constant
+    // small enough that 500ms is a tight, meaningful bound. Local `cargo test`
+    // defaults to debug, where the same work runs ~3× slower (≈1.4s on a
+    // current Windows laptop); a 3s debug cap stays well below "exponential"
+    // and keeps the test useful for local iteration without flaking on the
+    // build mode developers actually run. The point of the assertion is the
+    // shape of the algorithm, not the millisecond budget.
     let pat = ".*.*X";
     let input = "y".repeat(500);
-    within(Duration::from_millis(500), "ReDoS .*.*X", || r(pat).is_match(&input));
+    let cap = if cfg!(debug_assertions) {
+        Duration::from_secs(3)
+    } else {
+        Duration::from_millis(500)
+    };
+    within(cap, "ReDoS .*.*X", || r(pat).is_match(&input));
 }
 
 #[test]
