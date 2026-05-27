@@ -16,6 +16,33 @@ Show changes. Skip repeats. Save tokens. Stop paying your AI coder to read the s
 
 ---
 
+## What that looks like
+
+Two paths, both measured on this repo:
+
+| Surface | Raw | Shown to the model | Reduction |
+|---|---:|---:|---:|
+| **Input** — reading a 17 KB source file | 6,043 tok | 3,936 tok | **−35 %** |
+| **Output** — wrapping a 200-line test log | 674 tok | 80 tok | **−88 %** |
+
+The compact view is real text — what the model sees is something like:
+
+```
+line 1
+line 2
+…
+line 5
+[Knapsack: 184 lines elided · ~628 tok · recall ks2_1b30…]
+line 196
+…
+line 200
+[knapsack 674->80 tok (-88%) · 34 blocks · 0 unchanged · 0 re-sent]
+```
+
+The original is one `knapsack expand ks2_1b30…` away — byte-for-byte. Your numbers depend on your workload; repeated reads and repeated commands benefit most.
+
+---
+
 ## What Knapsack does
 
 AI coding agents read the same files and command output many times during edit-test loops. Every time, the full content gets dumped back into the context window — burning tokens on text the agent has already seen.
@@ -110,14 +137,17 @@ Install once. Use Claude Code normally. See savings.
 
 ## Seeing savings
 
-Savings appear after Claude Code reads files or runs commands. Right after install, savings show as zero — nothing has happened yet.
+Right after install, `knapsack status` shows zero — nothing has happened yet. As soon as Claude reads a qualifying file or runs a wrapped command, savings start to accumulate.
 
-After a few file reads or repeated command runs, `knapsack status` will start showing tokens saved.
+**Fastest way to see a real number** — after Claude reads one biggish source file, run:
 
 ```sh
-knapsack metrics
+knapsack why-last 5
 ```
-A more detailed savings scoreboard.
+
+You'll see lines like `redirect-emitted  17038B  H:\...\regex.rs  6043->3936 tok` — the exact before/after for each Read decision, so you can see the input-reduction gain on your own files immediately.
+
+For the cumulative picture, run `knapsack status` (or type `/knapsack` in Claude Code) for a one-screen summary, or `knapsack metrics` for the full scoreboard.
 
 ---
 
