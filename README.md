@@ -2,23 +2,60 @@
   <img src="knapsack_logo.jpg" alt="Knapsack logo" width="240">
 </p>
 
-# 🎒 Knapsack
+# Knapsack
 
-**Stop paying for output Claude Code has already seen.**
-Knapsack shrinks the noisy command output and file reads that flood your context window — so your tokens go to thinking, not re-reading. Nothing is lost: Claude can pull back the exact original any time.
+**Knapsack helps AI coders waste less context by skipping repeated files, logs, and test output.**
 
 [![Release](https://img.shields.io/github/v/release/MerlijnW70/knapsack?label=release&color=2ea44f)](https://github.com/MerlijnW70/knapsack/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](#license)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20·%20macOS%20·%20Linux-informational)
-![Dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen)
 
-**[Install](#install) · [Why](#why-youll-want-it) · [How it works](#how-it-works) · [Commands](#commands) · [FAQ](#faq)**
+Show changes. Skip repeats. Save tokens. Stop paying your AI coder to read the same context twice.
+
+**[Install](#install) · [What it does](#what-knapsack-does) · [Check it's working](#check-that-its-working) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall)**
+
+---
+
+## What Knapsack does
+
+AI coding agents read the same files and command output many times during edit-test loops. Every time, the full content gets dumped back into the context window — burning tokens on text the agent has already seen.
+
+Knapsack notices repeated context, shows what changed, and keeps the original available for recall.
+
+**Without Knapsack:**
+- run tests
+- AI reads a long test log
+- make a small edit
+- run tests again
+- AI reads almost the same log again
+
+**With Knapsack:**
+- the first run shows the useful output
+- later runs show mostly what changed
+- repeated parts become short recall notes
+
+If the agent needs the original back, it can fetch it any time — byte for byte, the same characters you'd see without Knapsack.
+
+---
+
+## What Knapsack helps with
+
+- repeated test output
+- build logs
+- search results
+- large file reads
+- repeated file reads
+- long AI coding sessions
+- keeping context cleaner
+- seeing token savings
+
+Knapsack reduces *repeated* context — it does not make every interaction cheaper. Savings depend on your workflow. Repeated test runs, logs, search output, and large or repeated file reads benefit most. When a shorter view wouldn't actually help, Knapsack passes the content through unchanged.
 
 ---
 
 ## Install
 
-One line. Restart Claude Code. Done.
+One command. Restart Claude Code. Done.
 
 **Windows (PowerShell)**
 ```powershell
@@ -30,30 +67,9 @@ irm https://raw.githubusercontent.com/MerlijnW70/knapsack/main/install.ps1 | iex
 curl -fsSL https://raw.githubusercontent.com/MerlijnW70/knapsack/main/install.sh | sh
 ```
 
-The installer downloads a tiny binary, verifies its checksum, **backs up** your Claude Code config, wires itself in, and runs a self-check. Then just **restart Claude Code** — that's it.
+The installer downloads a small binary, verifies its checksum, backs up your Claude Code config, wires Knapsack in, and runs a self-check.
 
-Verify it's live by typing `/knapsack` in Claude Code. You'll see:
-
-```
-Knapsack active
-
-Input reduction:  active
-Output reduction: active
-Session saved:    no activity yet
-Net reduction:    n/a
-Recall:           idle
-Store:            empty
-```
-
-If anything other than `Knapsack active` shows, run `/knapsack doctor` for a long-form diagnostic.
-
-**Off-switch for the Read-tool path** (rare — only if it ever misbehaves):
-
-```sh
-KNAPSACK_READ_HOOK=0 claude    # disable input reduction for this session
-```
-
-Output reduction stays on. Unset the variable to re-enable.
+After installing, **restart Claude Code**. That's it.
 
 <details>
 <summary>Prefer to build it yourself?</summary>
@@ -68,122 +84,127 @@ cargo build --release
 
 ---
 
-## Why you'll want it
+## Check that it's working
 
-Agents re-read the same files and re-run the same tests over and over. Every time, the **full output** gets dumped back into the context window — burning tokens (and money) on text Claude has already seen.
+```sh
+knapsack doctor
+```
+Checks installation health: the binary, the Claude Code hook, recall storage, and a quick round-trip test.
 
-Knapsack quietly compresses both **command output** and **file reads** as they come in. When Claude actually needs a detail, it asks for the exact bytes back.
+```sh
+knapsack status
+```
+Shows whether Knapsack is active and how much it has saved so far.
 
-- 💸 **~90% fewer tokens** on the repeated reads and edit→test loops agents do most (measured on this repo: 88% cold, 99% warm across 25 real commands).
-- 🔒 **Nothing is lost.** Recall is byte-exact — character for character, every time.
-- ⚡ **Invisible.** It runs as a Claude Code hook. Install once, then forget it's there.
-- 🛟 **Never worse than raw.** If a compressed view wouldn't be smaller, knapsack lets the raw bytes through — it can never make a turn more expensive.
-- 🪶 **Tiny & safe.** One small binary, zero runtime dependencies, and it backs up your config before touching anything.
+You can also type `/knapsack` inside Claude Code for the same summary.
 
 ---
 
-## How it works
+## Normal usage
 
-Knapsack runs as a Claude Code hook on two paths:
+After install, you don't need to change your workflow. Run Claude Code normally — Knapsack works in the background.
 
-- **Output reduction** — when Claude runs a noisy Bash command (`cargo test`, `npm install`, `git diff`, …) its output goes through Knapsack first. The model sees a compact summary plus a recall handle.
-- **Input reduction** — when Claude reads a large file (a long source file, a packed log, a big markdown doc), the model sees a compressed view of it instead of the raw bytes. The original file on disk is never touched.
-
-Either way, if the model needs the details it can **expand the handle** byte-exact (whole file, a line range, or a grep). And re-running or re-reading the same thing is nearly free — Knapsack just emits a small back-reference.
-
-> The first time something is seen, it's sent in full. Every repeat after that is nearly free.
-
-Knapsack only intervenes when it helps. If a compressed view isn't meaningfully smaller than the raw bytes, the raw bytes go through unchanged — the tool can never make a turn *more* expensive than not running it.
+Install once. Use Claude Code normally. See savings.
 
 ---
 
-## What you get
+## Seeing savings
 
-- **Automatic compression** of noisy command output, the moment it runs.
-- **On-demand recall** — Claude fetches the full output, a line range, or a search match, byte-exact.
-- **A live savings scoreboard** — run `knapsack metrics` any time to see tokens saved.
-- **Cross-platform** — Windows, macOS (Intel & Apple Silicon), and Linux.
+Savings appear after Claude Code reads files or runs commands. Right after install, savings show as zero — nothing has happened yet.
+
+After a few file reads or repeated command runs, `knapsack status` will start showing tokens saved.
+
+```sh
+knapsack metrics
+```
+A more detailed savings scoreboard.
 
 ---
 
-## Commands
+## Recall
 
-| Command | What it does |
-| --- | --- |
-| `knapsack` (or `/knapsack` in Claude Code) | The friendly summary — active? tokens saved this session? recall healthy? |
-| `knapsack pack <file>` | Pack a context file (CLAUDE.md, AGENTS.md, briefs) — writes `<name>.knapsack.md` next to it, original untouched. `--dry-run` to inspect, `--force` to write even when savings are tiny, `--output <path>` to override. |
-| `knapsack doctor` | Long-form health check — confirms the hook and MCP server point at the same installed binary, reports store metadata coverage |
-| `knapsack metrics` | Detailed metrics scoreboard |
-| `knapsack gc [--older-than DAYS] [--dry-run]` | Drop cold blocks from the recall store (default: 30 days). Removes block + metadata sidecar as a pair. Also cleans the experimental read-cache. |
-| `knapsack why-last [N]` | Print the last N Read-hook decisions (default 10) — "why was this Read redirected / passed through?". Useful when a specific file isn't getting compressed. |
-| `knapsack uninstall` | Cleanly removes it (add `--purge` to also delete its cache) |
+If Knapsack shows a shorter view, the original is still available. Claude can ask for it back any time. You usually don't need to think about this.
 
-### Input reduction (Read tool) — safety contract
+Power users can recall content directly:
 
-Input reduction is on by default after `knapsack install`. When the model issues a Read of a large file, the PreToolUse hook decides whether to redirect at a compact view in `~/.knapsack/read_cache/`. The decision is conservative on purpose:
-
-- **Never mutates the original file** — the source on disk is read-only to the hook. The redirect only changes which path Claude Code reads.
-- **Passes through on any uncertainty** — missing file, unreadable file, slicing (`offset` / `limit`) reads, files outside the safety band (under 8 KB or over 4 MB) all bypass the hook untouched.
-- **Refuses to redirect if not enough is saved** — if the compressed view doesn't beat the raw file by a clear margin, the original is read directly.
-- **Recall is byte-exact** — `knapsack expand <handle>` (or the `knapsack_expand` MCP tool) returns the original bytes, character-for-character, or a `--lines A-B` slice.
-- **Every decision is logged.** `knapsack why-last 20` shows the reason for the last 20 Reads — useful when a file you expected to be compressed wasn't.
-- **Off-switch:** `KNAPSACK_READ_HOOK=0 claude` disables it for that session. Output reduction stays on.
-
-### `knapsack pack <file>` — safety contract
-
-- **Never mutates the original file.** The packed view is written to a side-car (default `<name>.knapsack.md`).
-- **Refuses to write a non-shrinking view** unless `--force` is passed. `--dry-run` writes nothing and just reports what *would* happen.
-- **Byte-exact recall.** The original bytes are stored under a content-addressed handle; `knapsack expand <handle>` (or the `knapsack_expand` MCP tool) returns them character-for-character, or a `--lines A-B` slice.
-- **No prompt or tool-input mutation.** This is an explicit, user-invoked operation — Knapsack never silently rewrites prompts or hidden context.
-
-### What a packed file looks like
-
-The visible markers are short and human-readable:
-
-```
-[Knapsack: section omitted · ~178 tokens · exact recall available]
+```sh
+knapsack expand <handle>                  # full original bytes
+knapsack expand <handle> --lines 10-40    # a slice
+knapsack inspect <handle>                 # metadata + preview
 ```
 
-Handles and line ranges live in a trailing HTML comment that markdown renderers strip, so the rendered file stays clean. **Normal users** just read the side-car as-is — the original is always one `knapsack expand <handle>` away.
+---
 
-**Power users** can run `knapsack inspect <packed-file>` to see the per-section index:
+## Troubleshooting
 
+```sh
+knapsack doctor
 ```
-Knapsack packed view: CLAUDE.knapsack.md
-  original source: CLAUDE.md
-  whole-file handle: ks_1f5d1077f2
-  full recall: knapsack expand ks_1f5d1077f2
-  elisions: 3
+Checks that the hook, recall tools, and storage are healthy.
 
-  #1   lines 10-10   ~178 tokens   recall: knapsack expand ks_1f5d1077f2 --lines 10-10
-  #2   lines 22-22   ~412 tokens   recall: knapsack expand ks_1f5d1077f2 --lines 22-22
-  #3   lines 38-38   ~92 tokens    recall: knapsack expand ks_1f5d1077f2 --lines 38-38
+```sh
+knapsack why-last
 ```
+Shows the last few decisions Knapsack made on file reads — useful if you expected a specific file to be shortened but it wasn't.
 
-> `knapsack install` (run for you by the installer) is what wires it into Claude Code.
-> If `doctor` ever reports drift, `knapsack install --repair` re-points the hook and MCP server back at the installed binary.
+```sh
+knapsack install --repair
+```
+Re-points Claude Code at the installed Knapsack binary. Use this if you reinstalled, moved the binary, or `doctor` reports drift.
+
+---
+
+## Uninstall
+
+```sh
+knapsack uninstall
+```
+Removes Knapsack from Claude Code's config. Your local Knapsack data is kept in case you reinstall.
+
+```sh
+knapsack uninstall --purge
+```
+Also removes the local Knapsack data and cache.
+
+---
+
+## Who Knapsack is for
+
+Knapsack is for developers using AI coding agents — especially when those agents run tests, searches, and file reads repeatedly during edit-test loops.
+
+## Who it's not for
+
+Knapsack is less useful if:
+
+- you rarely repeat commands or file reads
+- your AI sessions are very short
+- you don't use Claude Code-compatible hooks/MCP
+
+Knapsack is a **local developer tool**. It runs on your machine, alongside Claude Code. It is not a shared or team server.
 
 ---
 
 ## FAQ
 
 **Will it lose any of my output?**
-No. Recall is byte-exact — Claude can always get the original back, character for character.
+No. When Knapsack shows a shorter view, the original is still recoverable — same bytes, same characters.
 
 **Will it mess up my Claude Code config?**
-It backs up your `settings.json` and `~/.claude.json` before making any change, and `knapsack uninstall` reverses everything cleanly.
+The installer backs up `settings.json` and `~/.claude.json` before changing anything. `knapsack uninstall` reverses the changes cleanly.
 
 **Do I need to do anything after installing?**
-Just restart Claude Code so it picks up the new hook.
+Restart Claude Code so it picks up the new hook.
 
 **What does it need to run?**
-Nothing extra — it's a single self-contained binary with zero runtime dependencies.
+Nothing extra — Knapsack is a single small binary with no runtime dependencies.
 
-**How do I remove it?**
-```sh
-knapsack uninstall          # remove it, keep the cache
-knapsack uninstall --purge  # remove it and delete the cache
-```
+---
+
+## Technical details
+
+Knapsack is a small Rust binary with zero runtime dependencies. It plugs into Claude Code through its hook and recall-tool surfaces. Local data lives under `~/.knapsack/`.
+
+A deeper architecture write-up belongs in `ARCHITECTURE.md` — TODO.
 
 ---
 
