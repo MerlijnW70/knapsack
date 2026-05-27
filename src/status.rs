@@ -172,6 +172,20 @@ fn net_reduction_pct(a: &Agg) -> Option<i64> {
 }
 
 pub fn render(s: &Status) -> String {
+    render_with(s, false)
+}
+
+/// Verbose render — adds the Store line and the multi-session Lifetime footer.
+/// The default render keeps those off the headline so a fresh successful run isn't
+/// visually buried by historical recall debt (a real user-reported confusion: a
+/// session that saved 5,677 tokens at 85% reduction would read its own status and
+/// see the lifetime −6.95M refetch number first). Detail is preserved here and in
+/// `knapsack metrics`; nothing is hidden, only re-ordered.
+pub fn render_verbose(s: &Status) -> String {
+    render_with(s, true)
+}
+
+fn render_with(s: &Status, verbose: bool) -> String {
     let mut o = String::new();
 
     // Header. Inactive is the single most important signal — a dashboard that says
@@ -183,7 +197,45 @@ pub fn render(s: &Status) -> String {
         o.push_str("  Run `knapsack install` and restart Claude Code to enable.\n");
         return o;
     }
-    o.push_str("Knapsack active\n\n");
+
+    // Active state has three sub-flavors and the header should reflect which one,
+    // honestly. "Saving context" only when net > 0 for the current session — never
+    // fake positivity (the spec explicitly forbids it). "Active" is the neutral
+    // label when there IS work product but net is non-positive (the model recalled
+    // more than we compressed). "Ready" when the hook is wired but nothing has
+    // run yet. This is what makes the headline trustworthy: the user never sees a
+    // "saving context" banner above a negative reduction number.
+    let activity = s.latest_session.as_ref().filter(|(_, a)| a.compress_events > 0);
+    let net_positive = activity.as_ref().is_some_and(|(_, a)| a.net() > 0);
+    match (&activity, net_positive) {
+        (Some(_), true) => o.push_str("Knapsack is saving context\n\n"),
+        (Some(_), false) => o.push_str("Knapsack is active\n\n"),
+        (None, _) => o.push_str("Knapsack is ready\n\n"),
+    }
+
+    // Savings block — current session, displayed FIRST so the user sees the work they
+    // just did before anything else. Width convention: labels padded to column 20 so
+    // every value column aligns no matter the label length.
+    match activity {
+        Some((_id, a)) => {
+            o.push_str(&format!("Saved this session: {} tokens\n", commafy(a.saved)));
+            // Show Refetched on the default surface ONLY when it materially explains a
+            // negative or low reduction percentage — otherwise it's noise on a clean
+            // positive run. Verbose surface always shows it when > 0.
+            if a.refetched > 0 && (!net_positive || verbose) {
+                o.push_str(&format!("Refetched:          {} tokens\n", commafy(a.refetched)));
+            }
+            match net_reduction_pct(a) {
+                Some(pct) => o.push_str(&format!("Reduction:          {}%\n", pct)),
+                None => o.push_str("Reduction:          n/a\n"),
+            }
+        }
+        None => {
+            o.push_str("No savings yet.\n");
+        }
+    }
+
+    o.push('\n');
 
     // Input + Output reduction lines. Each reads as "active" / "off" — no env-var
     // jargon, no EXPERIMENTAL labels, no dogfood mention. The two paths share the
@@ -191,57 +243,49 @@ pub fn render(s: &Status) -> String {
     // OR has MCP missing (in which case output recall would silently fail).
     let input_active = crate::config::read_hook_enabled();
     o.push_str(&format!(
-        "Input reduction:  {}\n",
+        "Input reduction:    {}\n",
         if input_active { "active" } else { "off" }
     ));
     let output_active = s.mcp_installed;
     o.push_str(&format!(
-        "Output reduction: {}\n",
+        "Output reduction:   {}\n",
         if output_active { "active" } else { "off (recall not configured)" }
     ));
 
-    // Savings — anchored on the most recent session (the closest stand-in for "this
-    // session"). We report GROSS saves on its own line and refetched cost on its own
-    // line, with the net reduction percentage as the rolled-up summary. Showing one
-    // combined "Session saved: net" number can go negative when the model
-    // over-recalls (each model recall recovers bytes, paying back part of what was
-    // compressed) — a caveman user reads "-43k tokens saved" as "I lost tokens",
-    // which is misleading. Saves and refetches are real, separable things; print
-    // both honestly. When there's nothing yet, say so rather than print 0/0/0.
-    match &s.latest_session {
-        Some((_id, a)) if a.compress_events > 0 => {
-            o.push_str(&format!("Session saved:    {} tokens\n", commafy(a.saved)));
-            if a.refetched > 0 {
-                o.push_str(&format!("Refetched:        {} tokens\n", commafy(a.refetched)));
-            }
-            match net_reduction_pct(a) {
-                Some(pct) => o.push_str(&format!("Net reduction:    {}%\n", pct)),
-                None => o.push_str("Net reduction:    n/a\n"),
-            }
-        }
-        _ => {
-            o.push_str("Session saved:    no activity yet\n");
-            o.push_str("Net reduction:    n/a\n");
-        }
-    }
-
     // Recall health. Failed expands are the one thing that should jump out. Latest-
     // session scope keeps old failures from shouting forever; lifetime failures still
-    // get a quieter mention in the footer below.
+    // get a quieter mention in the verbose lifetime footer.
     let session_failed = s.latest_session.as_ref().map(|(_, a)| a.failed_expands).unwrap_or(0);
     if session_failed > 0 {
-        o.push_str(&format!("Recall:           ⚠ {} failed (run `knapsack doctor`)\n", session_failed));
-    } else if s.latest_session.is_some() {
-        o.push_str("Recall:           healthy\n");
+        o.push_str(&format!("Recall:             ⚠ {} failed (run `knapsack doctor`)\n", session_failed));
+    } else if activity.is_some() {
+        o.push_str("Recall:             healthy\n");
     } else {
-        o.push_str("Recall:           idle\n");
+        o.push_str("Recall:             idle\n");
     }
 
+    // Tip — only when the current session genuinely paid more in recall than it
+    // saved in compression (net <= 0 AND refetched > 0). We don't show a tip on an
+    // idle session (no advice would apply) or on a clean positive run (no problem
+    // to address). Behavior trigger, not unconditional noise. Surfaces in both
+    // default and verbose: the user advice is just as useful with detail underneath.
+    if let Some((_, a)) = activity {
+        if !net_positive && a.refetched > 0 {
+            o.push_str("\nTip: recall smaller sections instead of expanding whole files.\n");
+        }
+    }
+
+    if !verbose {
+        return o;
+    }
+
+    // --- Verbose-only detail below this line ---
+
     if s.store_blocks == 0 {
-        o.push_str("Store:            empty\n");
+        o.push_str("Store:              empty\n");
     } else {
         o.push_str(&format!(
-            "Store:            {} blocks / {}\n",
+            "Store:              {} blocks / {}\n",
             commafy(s.store_blocks as i64),
             human_bytes(s.store_bytes)
         ));
@@ -278,4 +322,15 @@ pub fn render(s: &Status) -> String {
 
 pub fn report() -> String {
     render(&collect())
+}
+
+/// Public entry that picks between default and verbose render. Used by `main.rs` so
+/// `knapsack status --verbose` (and `-v`) reaches the detailed output without callers
+/// needing to know about two separate render functions.
+pub fn report_with(verbose: bool) -> String {
+    if verbose {
+        render_verbose(&collect())
+    } else {
+        render(&collect())
+    }
 }

@@ -7,10 +7,12 @@
 //! a session that ALSO contains failed expands.
 //!
 //! Contract: `knapsack metrics` (CLI) and `knapsack_metrics` (MCP tool) must
-//! return BYTE-IDENTICAL text. They share `metrics::report_for`, so a drift
-//! means either the MCP envelope changed the body or the CLI added a
-//! header/footer the MCP didn't. Either way: scripts grepping the output
-//! would break silently.
+//! return BYTE-IDENTICAL text. The unfiltered surface dispatches through
+//! `metrics::report()` (which prepends a "current session" block before the
+//! lifetime table); the per-session filter goes through `metrics::report_for`
+//! directly. A drift means either the MCP envelope changed the body or one
+//! surface added a header/footer the other didn't — scripts grepping the
+//! output would break silently.
 
 mod common;
 use common::EnvSandbox;
@@ -41,7 +43,15 @@ fn rpc_metrics_text(session: Option<&str>) -> String {
 }
 
 fn cli_metrics_text(session: Option<&str>) -> String {
-    metrics::report_for(session)
+    // Mirror what `knapsack metrics` actually runs in main.rs: dispatch to
+    // `report()` (with current-session prefix) for the unfiltered case, and
+    // to `report_for(Some(s))` (single-session view, no prefix) when filtering.
+    // This keeps the symmetry assertion meaningful — both sides reflect the
+    // real user-facing surface, not an internal helper.
+    match session {
+        Some(s) => metrics::report_for(Some(s)),
+        None => metrics::report(),
+    }
 }
 
 // =====================================================================

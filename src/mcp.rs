@@ -217,7 +217,19 @@ fn call_tool(id: Option<Json>, name: &str, args: Option<&Json>) -> String {
                 }
             }
         }
-        "knapsack_metrics" => text_result(id, metrics::report_for(arg_str(args, "session_id").as_deref()), false),
+        "knapsack_metrics" => {
+            // Symmetry with the CLI `knapsack metrics`: when no session_id is supplied,
+            // call `metrics::report()` (which prepends the "current session" block before
+            // the lifetime table). With an explicit session_id, the caller wants the
+            // single-session filtered view, so use `report_for` directly. This keeps the
+            // MCP and CLI surfaces returning byte-identical text — pinned by the
+            // mcp_cli_symmetry tests.
+            let text = match arg_str(args, "session_id") {
+                Some(s) => metrics::report_for(Some(s.as_str())),
+                None => metrics::report(),
+            };
+            text_result(id, text, false)
+        }
         _ => rpc_error(id, -32601, &format!("Unknown tool: {}", name)),
     }
 }

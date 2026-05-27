@@ -187,6 +187,58 @@ fn metrics_verdict_no_data_message() {
 }
 
 #[test]
+fn metrics_report_leads_with_current_session_block() {
+    // Mirrors the user-reported confusion on `knapsack metrics`: a current session
+    // saved tokens while the lifetime aggregate is dominated by historical recall
+    // debt. The default report prepends a tiny "current session" block so the
+    // recent positive work is the first thing the user reads. The full lifetime
+    // table follows untouched, NET line and all — nothing is erased.
+    let sb = sandbox_env("metrics-current-session-leads");
+    let metrics_path = sb.join("metrics.jsonl");
+    std::fs::write(
+        &metrics_path,
+        concat!(
+            // Historical session contributing to recall debt.
+            r#"{"t":100,"event":"compress","session":"old-1","raw":1012,"shown":150,"saved":862,"delta_hits":0,"evicted":0}"#, "\n",
+            r#"{"t":150,"event":"expand","session":"old-1","tokens":6952811,"ok":true}"#, "\n",
+            // Current session — clean positive run.
+            r#"{"t":2000,"event":"compress","session":"react-fresh","raw":6689,"shown":1012,"saved":5677,"delta_hits":34,"evicted":0}"#, "\n",
+        ),
+    )
+    .unwrap();
+
+    let report = knapsack::metrics::report();
+
+    // Current session block leads.
+    let current_idx = report.find("current session").expect("'current session' block must appear");
+    let lifetime_idx = report.find("knapsack live stats").expect("lifetime table must appear");
+    assert!(
+        current_idx < lifetime_idx,
+        "current session block must come BEFORE the lifetime table:\n{report}"
+    );
+
+    // Current session shows the positive numbers, not the historical debt.
+    assert!(report.contains("saved tokens           : 5677"), "current session's saved tokens lead:\n{report}");
+    assert!(report.contains("reduction              : 84%"), "current session's reduction (5677/6689 = 84%):\n{report}");
+
+    // Lifetime table is preserved verbatim: NET line, refetched total, verdict.
+    assert!(report.contains("NET saved"), "lifetime NET line is preserved:\n{report}");
+    assert!(report.contains("6952811"), "lifetime refetched total is preserved:\n{report}");
+    assert!(report.contains("verdict:"), "lifetime verdict is preserved:\n{report}");
+}
+
+#[test]
+fn metrics_report_omits_current_session_block_when_no_compresses_yet() {
+    // When there are no compress events, there is no "current session" to surface —
+    // the prefix block must be omitted entirely (no half-empty block, no "n/a" lines).
+    // The empty-state verdict in the lifetime table is the user signal.
+    let _sb = sandbox_env("metrics-nodata-prefix");
+    let report = knapsack::metrics::report();
+    assert!(!report.contains("current session"), "no compresses -> no current session block:\n{report}");
+    assert!(report.contains("no data yet"), "empty-state verdict still leads:\n{report}");
+}
+
+#[test]
 fn doctor_output_has_each_check_line() {
     let _sb = sandbox_env("doctor-fmt");
     let report = knapsack::install::doctor();

@@ -114,9 +114,33 @@ pub fn summary_filtered(session: Option<&str>) -> Summary {
 }
 
 pub fn report() -> String {
-    report_for(None)
+    // Default report: lead with the CURRENT session block (positive, recent work)
+    // before the lifetime table. A user-reported confusion was that a fresh successful
+    // run (+5,677 tokens, 85% reduction) read its own metrics output and saw the
+    // lifetime −6.95M refetch headline first. Lifetime stays in full — nothing is
+    // hidden — but the current session is what answers "did this run work?".
+    let mut o = String::new();
+    if let Some(id) = latest_compress_session_id() {
+        let cur = summary_filtered(Some(&id));
+        if cur.compress_events > 0 {
+            o.push_str("current session\n  ");
+            o.push_str(&format!("saved tokens           : {}\n  ", cur.saved));
+            if cur.refetched > 0 {
+                o.push_str(&format!("refetched              : {}\n  ", cur.refetched));
+            }
+            match net_reduction_pct(&cur) {
+                Some(pct) => o.push_str(&format!("reduction              : {}%\n\n", pct)),
+                None => o.push_str("reduction              : n/a\n\n"),
+            }
+        }
+    }
+    o.push_str(&report_for(None));
+    o
 }
 
+/// Pre-existing lifetime/single-session report. Default `report()` now prepends a
+/// "current session" block; this path is preserved untouched so `report_for(Some(s))`
+/// (used internally) keeps the historic single-block shape.
 pub fn report_for(session: Option<&str>) -> String {
     let s = summary_filtered(session);
     let verdict = if s.compress_events == 0 {
@@ -149,4 +173,42 @@ pub fn report_for(session: Option<&str>) -> String {
         s.net,
         verdict
     )
+}
+
+fn net_reduction_pct(s: &Summary) -> Option<isize> {
+    if s.raw == 0 {
+        return None;
+    }
+    Some(s.net * 100 / s.raw as isize)
+}
+
+/// Latest compress-event session id (same heuristic as `status::latest_session_id`).
+/// We duplicate the ~10-line function rather than make the status helper pub-crate
+/// because the two modules are intentionally independent: `status` builds via
+/// `ab::read`, `metrics` runs its own JSONL pass. The heuristic itself is the
+/// contract — anchor on compresses, ignore expand-only sessions (e.g. "mcp"),
+/// last-wins on `t` ties.
+fn latest_compress_session_id() -> Option<String> {
+    let text = fs::read_to_string(metrics_path()).ok()?;
+    let mut best_t = f64::NEG_INFINITY;
+    let mut best_id: Option<String> = None;
+    for line in text.lines() {
+        let v = match json::parse(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if v.get("event").and_then(|x| x.as_str()) != Some("compress") {
+            continue;
+        }
+        let t = v.get("t").and_then(|x| x.as_f64()).unwrap_or(0.0);
+        let id = v.get("session").and_then(|x| x.as_str()).unwrap_or("");
+        if id.is_empty() {
+            continue;
+        }
+        if t >= best_t {
+            best_t = t;
+            best_id = Some(id.to_string());
+        }
+    }
+    best_id
 }

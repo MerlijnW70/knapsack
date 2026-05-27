@@ -175,7 +175,14 @@ fn main() {
         // Bare `knapsack` and `knapsack status` both render the product-facing summary —
         // this is what the Claude Code `/knapsack` slash command invokes. `doctor` keeps
         // the long-form diagnostic; everything new goes here.
-        "" | "status" => print!("{}", knapsack::status::report()),
+        "" | "status" => {
+            // Default render is the compact, user-facing summary; `--verbose` (or `-v`)
+            // adds the Store line and the multi-session Lifetime footer. The split exists
+            // so a fresh successful run doesn't get visually buried by historical recall
+            // debt on the headline; full detail is one flag (or `knapsack metrics`) away.
+            let verbose = rest.iter().any(|s| s == "--verbose" || s == "-v");
+            print!("{}", knapsack::status::report_with(verbose));
+        }
         "hook" => hook::run_hook(),
         "mcp" => knapsack::mcp::serve(),
 
@@ -697,7 +704,7 @@ fn usage() -> ! {
         "knapsack — conditional token reducer\n\n\
          usage:\n  \
          knapsack                          (product summary — same as `status`)\n  \
-         knapsack status                   (product summary; `/knapsack` in Claude Code)\n  \
+         knapsack status [--verbose|-v]    (product summary; `/knapsack` in Claude Code)\n  \
          knapsack hook                     (PreToolUse shim)\n  \
          knapsack mcp                      (MCP stdio server: expand/inspect/metrics)\n  \
          knapsack pack <file> [--output P] [--force] [--dry-run]\n  \
