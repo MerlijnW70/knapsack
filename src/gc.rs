@@ -9,6 +9,30 @@
 //! Cleanup is paired: every deleted block also deletes its `.meta` sidecar via
 //! `Store::delete`. We never leave half a pair behind, never delete a meta whose
 //! block is still wanted, never delete during a `--dry-run`.
+//!
+//! ## Concurrent-pack safety: the 2-phase write race
+//!
+//! `Store::put_with_handle` writes the block file first, then the `.meta` sidecar.
+//! There's a microsecond window where the block exists but its meta hasn't landed.
+//! A naïve gc walking the store during that window would see:
+//!   - ks2_ block with no meta sidecar
+//!   - fs mtime ≈ now (just written)
+//! and with `--older-than 0` would compute `age >= 0` → delete a block the user's
+//! `pack_output` just returned a handle for. That's the "newly written fresh blocks
+//! deleted as old" failure mode the round-10 brief calls out as unacceptable.
+//!
+//! Fix: for ks2_ blocks WITHOUT a meta sidecar, require a minimum age — far longer
+//! than any plausible 2-phase write window — before considering them eligible.
+//! Legacy `ks_` blocks (which never had meta) keep their mtime-only semantics.
+//! Orphan ks2_ blocks (meta-write genuinely failed earlier) are still cleaned
+//! eventually; they just need to wait out the safeguard first.
+//!
+//! 60 seconds is generous: a normal put completes in microseconds; even a heavily
+//! contended filesystem won't span a minute between block and meta write. The
+//! tradeoff: a user who packs, immediately panics+kills the meta write, then runs
+//! `knapsack gc --older-than 0` within 60 seconds will see the orphan block stick
+//! around. That's the right side of the fence for a recall store.
+const MIN_NO_META_KS2_AGE_SECS: u64 = 60;
 
 use crate::meta;
 use crate::store::Store;
@@ -124,13 +148,28 @@ fn consider_block(block_path: &Path, now: u64, r: &mut GcReport, store: &Store) 
     r.scanned += 1;
     let meta_path = meta::meta_path(block_path);
     let (last_active, len) = block_age_and_size(block_path, &meta_path);
-    if last_active.is_some() && meta_path.exists() {
+    let meta_present = meta_path.exists();
+    if last_active.is_some() && meta_present {
         r.meta_present += 1;
     } else {
         r.meta_missing += 1;
     }
+    // For ks2_ blocks WITHOUT a meta sidecar, the block may be mid-write in a
+    // concurrent pack (2-phase block-then-meta in store.rs). Require a minimum
+    // age before considering deletion so we never race-delete a freshly-written
+    // block that pack just returned a handle for. See module docs.
+    let is_ks2_no_meta = !meta_present
+        && block_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("ks2_"));
+    let effective_threshold = if is_ks2_no_meta {
+        r.older_than_secs.max(MIN_NO_META_KS2_AGE_SECS)
+    } else {
+        r.older_than_secs
+    };
     let stale = match last_active {
-        Some(t) => now.saturating_sub(t) >= r.older_than_secs,
+        Some(t) => now.saturating_sub(t) >= effective_threshold,
         // No fs metadata reachable at all (already-vanished file mid-scan, weird FS).
         // Skip it — better to leave a block than to delete based on no signal.
         None => false,

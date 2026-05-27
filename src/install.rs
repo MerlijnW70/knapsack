@@ -78,8 +78,16 @@ fn canonical_cmd(bin: &str) -> String {
     format!("\"{}\" hook", bin)
 }
 fn hook_entry(bin: &str) -> Json {
+    // Subscribe to BOTH Bash (output reduction) AND Read (input reduction).
+    // Claude Code's matcher is regex-alternation; "Bash|Read" routes both
+    // tool kinds into a single `knapsack hook` invocation, where the binary's
+    // dispatch on tool_name (hook.rs:272) sends Bash through the wrap path
+    // and Read through read_hook::run. Pre-fix the matcher was "Bash" only,
+    // which left Read-tool input reduction silently dormant after install —
+    // the README contract ("input reduction is on by default") wasn't met
+    // because Claude Code never delivered Read events to the hook.
     Json::Obj(vec![
-        ("matcher".into(), Json::Str("Bash".into())),
+        ("matcher".into(), Json::Str("Bash|Read".into())),
         ("hooks".into(), Json::Arr(vec![Json::Obj(vec![
             ("type".into(), Json::Str("command".into())),
             ("command".into(), Json::Str(canonical_cmd(bin))),
@@ -92,13 +100,20 @@ fn root_has_hook(root: &Json) -> bool {
     }
     false
 }
-/// Converge the knapsack PreToolUse hook to the canonical command, not just "present or not".
-/// Predicate = semantic ownership (cmd_is_knapsack) AND exact desired target: a knapsack hook
-/// pointing at a *stale* binary path is rewritten in place; a missing one is added; an
-/// already-canonical one is left untouched (NoChange). This is what makes a re-point/repair
-/// actually fix drift instead of seeing "a knapsack hook exists" and doing nothing.
+/// The canonical matcher: subscribes to both Bash (output reduction) and Read
+/// (input reduction). See `hook_entry` for the full rationale.
+const CANONICAL_MATCHER: &str = "Bash|Read";
+
+/// Converge the knapsack PreToolUse hook to the canonical command AND matcher,
+/// not just "present or not". Predicate = semantic ownership (cmd_is_knapsack)
+/// AND exact desired target: a knapsack hook pointing at a *stale* binary path
+/// is rewritten in place; a knapsack hook with a *stale matcher* (pre-fix the
+/// default was just "Bash", which left Read events unsubscribed) is also
+/// rewritten; an already-canonical entry is left untouched (NoChange). This is
+/// what makes a re-point/repair actually fix drift instead of seeing "a knapsack
+/// hook exists" and doing nothing.
 fn apply_hook(root: &mut Json, bin: &str) -> bool {
-    let want = canonical_cmd(bin);
+    let want_cmd = canonical_cmd(bin);
     let hooks = entry(root, "hooks", Json::Obj(vec![]));
     let pre = entry(hooks, "PreToolUse", Json::Arr(vec![]));
     if !matches!(pre, Json::Arr(_)) {
@@ -108,17 +123,38 @@ fn apply_hook(root: &mut Json, bin: &str) -> bool {
     let mut changed = false;
     if let Json::Arr(entries) = pre {
         for e in entries.iter_mut() {
+            // Is this entry's hooks-array one of ours? (i.e. command contains "knapsack hook")
+            let is_ours = matches!(e.get("hooks"), Some(Json::Arr(hs)) if hs.iter().any(|h| {
+                h.get("command").and_then(|c| c.as_str()).map(cmd_is_knapsack).unwrap_or(false)
+            }));
+            if !is_ours {
+                continue;
+            }
+            found = true;
+            // Repair matcher: if it isn't already the canonical alternation,
+            // rewrite. This catches the pre-fix "Bash"-only default.
+            if let Json::Obj(o) = e {
+                if let Some(p) = o.iter().position(|(k, _)| k == "matcher") {
+                    if o[p].1 != Json::Str(CANONICAL_MATCHER.into()) {
+                        o[p].1 = Json::Str(CANONICAL_MATCHER.into());
+                        changed = true;
+                    }
+                } else {
+                    o.push(("matcher".into(), Json::Str(CANONICAL_MATCHER.into())));
+                    changed = true;
+                }
+            }
+            // Repair command: rewrite stale binary paths in place.
             if let Some(Json::Arr(hs)) = get_mut(e, "hooks") {
                 for h in hs.iter_mut() {
-                    let is_ours = h.get("command").and_then(|c| c.as_str()).map(cmd_is_knapsack).unwrap_or(false);
-                    if !is_ours {
+                    let is_h_ours = h.get("command").and_then(|c| c.as_str()).map(cmd_is_knapsack).unwrap_or(false);
+                    if !is_h_ours {
                         continue;
                     }
-                    found = true;
                     if let Json::Obj(o) = h {
                         if let Some(p) = o.iter().position(|(k, _)| k == "command") {
-                            if o[p].1 != Json::Str(want.clone()) {
-                                o[p].1 = Json::Str(want.clone());
+                            if o[p].1 != Json::Str(want_cmd.clone()) {
+                                o[p].1 = Json::Str(want_cmd.clone());
                                 changed = true;
                             }
                         }
@@ -412,6 +448,44 @@ pub fn hook_binary(path: &Path) -> Option<String> {
     let root = fs::read_to_string(path).ok().and_then(|t| json::parse(&t).ok())?;
     hook_cmd_in(&root).as_deref().and_then(cmd_bin)
 }
+
+/// What the settings.json knapsack PreToolUse entry's `matcher` field looks like.
+/// `doctor` consumes this to flag the silently-dormant case: pre-fix installs left
+/// `"Bash"` only, so check 4 ("hook installed") passed but Claude Code never routed
+/// Read events to the hook — input reduction was dead until the user thought to
+/// run `--repair`. Doctor surfacing the matcher value lets users discover the drift
+/// without prior knowledge.
+pub enum HookMatcher {
+    /// No knapsack entry in PreToolUse at all — check 4 already surfaces this as Warn.
+    NoEntry,
+    /// Entry exists but has no `matcher` key (hand-edited, or hook malformed).
+    Missing,
+    /// Entry exists with this matcher value. Canonical is `Bash|Read`.
+    Value(String),
+}
+
+/// Read the matcher field of the knapsack entry in `path`'s PreToolUse list.
+/// Stops at the first knapsack-owned entry (the `apply_hook` path enforces at-most-one).
+pub fn hook_matcher(path: &Path) -> HookMatcher {
+    let root = match fs::read_to_string(path).ok().and_then(|t| json::parse(&t).ok()) {
+        Some(r) => r,
+        None => return HookMatcher::NoEntry,
+    };
+    let arr = match root.get("hooks").and_then(|h| h.get("PreToolUse")) {
+        Some(Json::Arr(a)) => a.clone(),
+        _ => return HookMatcher::NoEntry,
+    };
+    for e in &arr {
+        if !entry_is_knapsack(e) {
+            continue;
+        }
+        return match e.get("matcher").and_then(|m| m.as_str()) {
+            Some(s) => HookMatcher::Value(s.to_string()),
+            None => HookMatcher::Missing,
+        };
+    }
+    HookMatcher::NoEntry
+}
 /// The binary the knapsack MCP server would run, per the mcp config.
 pub fn mcp_binary(path: &Path) -> Option<String> {
     let root = fs::read_to_string(path).ok().and_then(|t| json::parse(&t).ok())?;
@@ -498,6 +572,35 @@ pub fn run_checks() -> Vec<Check> {
     } else {
         mk("hook installed", Status::Warn, format!("not in {} — run `knapsack install`", sp.display()))
     });
+    // 4b. hook matcher — presence alone (check 4) is not enough to honor the install
+    // contract. Claude Code only routes a tool call to the hook when the matcher
+    // matches the tool name; a `"Bash"`-only matcher (the pre-fix default) lets
+    // output reduction work while leaving input reduction silently dormant. Fail
+    // loud when the matcher is wrong so users notice without having to know to run
+    // `--repair`. Skip when there's no entry at all — that's check 4's territory.
+    match hook_matcher(&sp) {
+        HookMatcher::NoEntry => {} // covered by check 4 as Warn
+        HookMatcher::Value(ref v) if v == CANONICAL_MATCHER => {
+            c.push(mk("hook matcher", Status::Ok, format!("`{}` — output + input reduction", v)));
+        }
+        HookMatcher::Value(v) => {
+            c.push(mk(
+                "hook matcher",
+                Status::Fail,
+                format!(
+                    "matcher `{}` — expected `{}`; one of output/input reduction is dormant. Run `knapsack install --repair`",
+                    v, CANONICAL_MATCHER
+                ),
+            ));
+        }
+        HookMatcher::Missing => {
+            c.push(mk(
+                "hook matcher",
+                Status::Fail,
+                "hook entry missing `matcher` field. Run `knapsack install --repair`".into(),
+            ));
+        }
+    }
     // 5. mcp config present
     let mcp = mcp_config_path();
     c.push(if mcp_has_server(&mcp) {
