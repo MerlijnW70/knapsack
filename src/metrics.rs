@@ -2,8 +2,12 @@
 //! we can prove the live claim: does conditional compression improve SESSION net_saved
 //! over Rucksack-style, once recall (expand) cost is paid back?
 //!   compress: {event,session,raw,shown,saved,delta_hits,evicted}
-//!   expand:   {event,session,tokens,ok}
+//!   expand:   {event,session,handle,tokens,ok,mode,caller}
 //! Reuses the in-tree json module (zero-dep) for write + parse.
+//!
+//! `mode` and `caller` were added so post-hoc analysis can answer "which handle is
+//! getting whole-expanded repeatedly and who's asking?" without grepping the codebase.
+//! The reader (`summary_filtered`) ignores them; they're write-only diagnostic fields.
 
 use crate::config::metrics_path;
 use crate::json::{self, Json};
@@ -55,13 +59,61 @@ pub fn record_compress(
     ]));
 }
 
-pub fn record_expand(session: &str, tokens: usize, ok: bool) {
+/// Which slicing path produced the recall, for post-hoc cost analysis.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ExpandMode {
+    Whole,
+    Lines,
+    Grep,
+}
+
+impl ExpandMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            ExpandMode::Whole => "whole",
+            ExpandMode::Lines => "lines",
+            ExpandMode::Grep => "grep",
+        }
+    }
+}
+
+/// Which integration surface invoked the recall. Lets us tell "model retried via MCP"
+/// apart from "user typed `knapsack expand` in the shell" apart from "Read hook
+/// recovered cache". Without this, every expand looks the same in metrics.jsonl.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ExpandCaller {
+    Cli,
+    Mcp,
+    Hook,
+}
+
+impl ExpandCaller {
+    fn as_str(self) -> &'static str {
+        match self {
+            ExpandCaller::Cli => "cli",
+            ExpandCaller::Mcp => "mcp",
+            ExpandCaller::Hook => "hook",
+        }
+    }
+}
+
+pub fn record_expand(
+    session: &str,
+    handle: &str,
+    tokens: usize,
+    ok: bool,
+    mode: ExpandMode,
+    caller: ExpandCaller,
+) {
     append(&Json::Obj(vec![
         ("t".into(), Json::Num(now_ms())),
         ("event".into(), Json::Str("expand".into())),
         ("session".into(), Json::Str(session.into())),
+        ("handle".into(), Json::Str(handle.into())),
         ("tokens".into(), Json::Num(tokens as f64)),
         ("ok".into(), Json::Bool(ok)),
+        ("mode".into(), Json::Str(mode.as_str().into())),
+        ("caller".into(), Json::Str(caller.as_str().into())),
     ]));
 }
 
