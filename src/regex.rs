@@ -39,7 +39,10 @@ struct Item {
 enum Kind {
     Char(char),
     Any,
-    Class { ranges: Vec<(char, char)>, negated: bool },
+    Class {
+        ranges: Vec<(char, char)>,
+        negated: bool,
+    },
     EndAnchor, // $ — only valid as the last item
 }
 
@@ -86,7 +89,10 @@ impl Regex {
             let c = chars[i];
             // `$` as the LAST char is the end anchor; anywhere else it's a literal `$`.
             if c == '$' && i == chars.len() - 1 {
-                items.push(Item { kind: Kind::EndAnchor, quant: Quant::One });
+                items.push(Item {
+                    kind: Kind::EndAnchor,
+                    quant: Quant::One,
+                });
                 i += 1;
                 continue;
             }
@@ -118,7 +124,11 @@ impl Regex {
             };
             items.push(Item { kind, quant });
         }
-        Ok(Regex { items, anchored_start, ignore_case })
+        Ok(Regex {
+            items,
+            anchored_start,
+            ignore_case,
+        })
     }
 
     /// True iff the pattern matches somewhere in `text`. (`^`/`$` are line-anchors per
@@ -158,12 +168,30 @@ fn compile_atom(chars: &[char], ignore_case: bool) -> Result<(Kind, usize), Stri
         }
         let next = chars[1];
         let kind = match next {
-            'd' => Kind::Class { ranges: vec![('0', '9')], negated: false },
-            'D' => Kind::Class { ranges: vec![('0', '9')], negated: true },
-            'w' => Kind::Class { ranges: word_ranges(), negated: false },
-            'W' => Kind::Class { ranges: word_ranges(), negated: true },
-            's' => Kind::Class { ranges: space_ranges(), negated: false },
-            'S' => Kind::Class { ranges: space_ranges(), negated: true },
+            'd' => Kind::Class {
+                ranges: vec![('0', '9')],
+                negated: false,
+            },
+            'D' => Kind::Class {
+                ranges: vec![('0', '9')],
+                negated: true,
+            },
+            'w' => Kind::Class {
+                ranges: word_ranges(),
+                negated: false,
+            },
+            'W' => Kind::Class {
+                ranges: word_ranges(),
+                negated: true,
+            },
+            's' => Kind::Class {
+                ranges: space_ranges(),
+                negated: false,
+            },
+            'S' => Kind::Class {
+                ranges: space_ranges(),
+                negated: true,
+            },
             esc => Kind::Char(maybe_lower(esc, ignore_case)),
         };
         return Ok((kind, 2));
@@ -239,7 +267,14 @@ fn word_ranges() -> Vec<(char, char)> {
     vec![('A', 'Z'), ('a', 'z'), ('0', '9'), ('_', '_')]
 }
 fn space_ranges() -> Vec<(char, char)> {
-    vec![(' ', ' '), ('\t', '\t'), ('\n', '\n'), ('\r', '\r'), ('\x0b', '\x0b'), ('\x0c', '\x0c')]
+    vec![
+        (' ', ' '),
+        ('\t', '\t'),
+        ('\n', '\n'),
+        ('\r', '\r'),
+        ('\x0b', '\x0b'),
+        ('\x0c', '\x0c'),
+    ]
 }
 fn maybe_lower(c: char, lower: bool) -> char {
     if lower {
@@ -311,7 +346,11 @@ fn match_here(items: &[Item], text: &str) -> bool {
                 offsets.push(last + n);
                 t = &t[n..];
             }
-            let min_count: usize = if matches!(item.quant, Quant::OneOrMore) { 1 } else { 0 };
+            let min_count: usize = if matches!(item.quant, Quant::OneOrMore) {
+                1
+            } else {
+                0
+            };
             // offsets has (consumed_chars + 1) entries — index by count of matches consumed.
             let max = offsets.len() - 1;
             if max < min_count {
@@ -400,7 +439,10 @@ mod tests {
         assert!(r("[abc]").is_match("xbz"));
         assert!(!r("[abc]").is_match("xyz"));
         assert!(r("[a-z]").is_match("Aa"));
-        assert!(!r("[^a-z]+").is_match("abc"), "negated class with + needs at least one non-az");
+        assert!(
+            !r("[^a-z]+").is_match("abc"),
+            "negated class with + needs at least one non-az"
+        );
         assert!(r("[^a-z]+").is_match("ABC"));
     }
 

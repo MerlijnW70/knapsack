@@ -20,8 +20,16 @@ use knapsack::store::Store;
 use std::path::{Path, PathBuf};
 
 fn tmp(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let d = std::env::temp_dir().join(format!("knapsack-attrib-{}-{}-{}", tag, std::process::id(), t));
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let d = std::env::temp_dir().join(format!(
+        "knapsack-attrib-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ));
     std::fs::create_dir_all(&d).unwrap();
     d
 }
@@ -32,7 +40,9 @@ fn tmp(tag: &str) -> PathBuf {
 use std::sync::{Mutex, MutexGuard, OnceLock};
 fn env_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner())
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 struct EnvScope {
     _lock: MutexGuard<'static, ()>,
@@ -41,8 +51,14 @@ struct EnvScope {
 impl EnvScope {
     fn new(dir: &Path) -> Self {
         let lock = env_lock();
-        let keys = ["KNAPSACK_STORE", "KNAPSACK_METRICS", "KNAPSACK_SESSIONS", "KNAPSACK_READ_LOG"];
-        let prior: Vec<(&str, Option<_>)> = keys.iter().map(|k| (*k, std::env::var_os(k))).collect();
+        let keys = [
+            "KNAPSACK_STORE",
+            "KNAPSACK_METRICS",
+            "KNAPSACK_SESSIONS",
+            "KNAPSACK_READ_LOG",
+        ];
+        let prior: Vec<(&str, Option<_>)> =
+            keys.iter().map(|k| (*k, std::env::var_os(k))).collect();
         std::env::set_var("KNAPSACK_STORE", dir.join("store"));
         std::env::set_var("KNAPSACK_METRICS", dir.join("metrics.jsonl"));
         std::env::set_var("KNAPSACK_SESSIONS", dir.join("sessions"));
@@ -63,7 +79,9 @@ impl Drop for EnvScope {
 
 fn metrics_lines(p: &std::path::Path) -> Vec<knapsack::json::Json> {
     let text = std::fs::read_to_string(p).unwrap_or_default();
-    text.lines().filter_map(|l| knapsack::json::parse(l).ok()).collect()
+    text.lines()
+        .filter_map(|l| knapsack::json::parse(l).ok())
+        .collect()
 }
 
 fn count_events(lines: &[knapsack::json::Json], event: &str, session: &str) -> usize {
@@ -95,8 +113,11 @@ fn store_with_session_stamps_meta_and_block_session_reads_it_back() {
     assert_eq!(store.block_session(&h).as_deref(), Some("session-A"));
     // A DIFFERENT Store instance pointing at the same dir reads the same answer.
     let other = Store::new(dir.join("store"));
-    assert_eq!(other.block_session(&h).as_deref(), Some("session-A"),
-        "a different Store reading the same dir sees the originating session");
+    assert_eq!(
+        other.block_session(&h).as_deref(),
+        Some("session-A"),
+        "a different Store reading the same dir sees the originating session"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -106,8 +127,11 @@ fn store_new_does_not_stamp_so_block_session_is_none() {
     let store = Store::new(dir.join("store"));
     let h = store.put(b"some bytes");
     // No session id was provided -> meta carries no session field -> lookup returns None.
-    assert_eq!(store.block_session(&h), None,
-        "Store::new must not stamp a session, so legacy callers keep working");
+    assert_eq!(
+        store.block_session(&h),
+        None,
+        "Store::new must not stamp a session, so legacy callers keep working"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -166,7 +190,11 @@ fn expand_attributes_refetch_to_originating_session_not_caller() {
 
     // Pick one stamped block to recall. (Any one of pack's handles will do; they're
     // all stamped under "cc-A".)
-    let h = r.handles.first().expect("pack stored at least one block").clone();
+    let h = r
+        .handles
+        .first()
+        .expect("pack stored at least one block")
+        .clone();
 
     // Now expand AS IF FROM THE MCP SERVER — a different process, different session id.
     let out = expand_handle(ExpandRequest {
@@ -183,12 +211,21 @@ fn expand_attributes_refetch_to_originating_session_not_caller() {
     let events = metrics_lines(&metrics_path);
     let under_a = count_events(&events, "expand", "cc-A");
     let under_mcp = count_events(&events, "expand", "mcp-server");
-    assert_eq!(under_a, 1, "expand event must land under the originating session 'cc-A'");
-    assert_eq!(under_mcp, 0, "no event should land under the caller's session id");
+    assert_eq!(
+        under_a, 1,
+        "expand event must land under the originating session 'cc-A'"
+    );
+    assert_eq!(
+        under_mcp, 0,
+        "no event should land under the caller's session id"
+    );
 
     // And concretely: cc-A's refetched bytes are non-zero (the user paid the recall
     // tax for cc-A's own block).
-    assert!(refetched_tokens(&events, "cc-A") > 0, "cc-A's refetch count must include this recall");
+    assert!(
+        refetched_tokens(&events, "cc-A") > 0,
+        "cc-A's refetch count must include this recall"
+    );
 }
 
 #[test]

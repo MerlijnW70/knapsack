@@ -11,13 +11,13 @@ fn ascii_space_class_includes_tab_lf_cr() {
     // src/token_estimate.rs:15 — sp += 1 for 9 ('\t'), 10 ('\n'), 13 ('\r'), 32 (' ')
     // ALL of these must produce the same weighting per-char.
     let n = 100;
-    let sp_space  = tokens(&" ".repeat(n));
-    let sp_tab    = tokens(&"\t".repeat(n));
-    let sp_lf     = tokens(&"\n".repeat(n));
-    let sp_cr     = tokens(&"\r".repeat(n));
-    assert_eq!(sp_space, sp_tab,  "space and tab must weight identically");
-    assert_eq!(sp_space, sp_lf,   "space and newline must weight identically");
-    assert_eq!(sp_space, sp_cr,   "space and CR must weight identically");
+    let sp_space = tokens(&" ".repeat(n));
+    let sp_tab = tokens(&"\t".repeat(n));
+    let sp_lf = tokens(&"\n".repeat(n));
+    let sp_cr = tokens(&"\r".repeat(n));
+    assert_eq!(sp_space, sp_tab, "space and tab must weight identically");
+    assert_eq!(sp_space, sp_lf, "space and newline must weight identically");
+    assert_eq!(sp_space, sp_cr, "space and CR must weight identically");
 }
 
 #[test]
@@ -42,8 +42,10 @@ fn alpha_class_is_only_basic_latin_a_z() {
     // so they're symbols. This is a feature, not a bug — keeps the estimator
     // matching JS charCodeAt exactly without locale awareness.
     let accents = "éñü";
-    assert!(tokens(accents) >= tokens("abc"),
-        "accented chars (symbols) must weight at least as much as letters");
+    assert!(
+        tokens(accents) >= tokens("abc"),
+        "accented chars (symbols) must weight at least as much as letters"
+    );
 }
 
 #[test]
@@ -80,7 +82,11 @@ fn arabic_and_hebrew_are_bmp_one_unit_each() {
 fn supplementary_plane_emoji_costs_two_units_each() {
     // U+1F600 (😀) up to U+1F64F all supplementary plane → surrogate pair → 2 units.
     let emojis = "😀😁😂🤣😃😄";
-    assert_eq!(emojis.encode_utf16().count(), 12, "6 emoji × 2 UTF-16 units");
+    assert_eq!(
+        emojis.encode_utf16().count(),
+        12,
+        "6 emoji × 2 UTF-16 units"
+    );
     // 12 symbols -> ceil(12 * 0.65) = 8.
     assert_eq!(tokens(emojis), 8);
 }
@@ -132,11 +138,17 @@ fn unicode_combining_marks_count_independently() {
     let composed = "é"; // U+00E9
     let decomposed = "e\u{0301}"; // 'e' + combining acute
     assert_eq!(composed.encode_utf16().count(), 1, "NFC é is 1 unit");
-    assert_eq!(decomposed.encode_utf16().count(), 2, "decomposed e+combining is 2 units");
+    assert_eq!(
+        decomposed.encode_utf16().count(),
+        2,
+        "decomposed e+combining is 2 units"
+    );
     // Token counts differ — the decomposed form is "letter" + "symbol".
     // That's a documented quirk: the estimator doesn't normalize.
-    assert!(tokens(composed) <= tokens(decomposed),
-        "decomposed form costs at least as much");
+    assert!(
+        tokens(composed) <= tokens(decomposed),
+        "decomposed form costs at least as much"
+    );
 }
 
 // ---------- byte-path (tokens_bytes via String::from_utf8_lossy) ----------
@@ -147,8 +159,10 @@ fn invalid_utf8_replacement_char_is_a_symbol() {
     // U+FFFD is BMP, one UTF-16 unit, in the symbol class.
     let lossy = tokens_bytes(&[0xff, 0xfe, 0xfd]); // 3 bad bytes → 3 FFFDs
     let expected = tokens("\u{FFFD}\u{FFFD}\u{FFFD}");
-    assert_eq!(lossy, expected,
-        "3 invalid bytes should equal 3 replacement chars (each a symbol)");
+    assert_eq!(
+        lossy, expected,
+        "3 invalid bytes should equal 3 replacement chars (each a symbol)"
+    );
 }
 
 #[test]

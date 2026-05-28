@@ -197,7 +197,11 @@ fn wrap_passes_inner_command_output_through_pack() {
         "echo",
         None,
     );
-    let out = Command::new("sh").arg("-c").arg(&wrapped).output().expect("spawn sh");
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(&wrapped)
+        .output()
+        .expect("spawn sh");
     assert_eq!(out.status.code(), Some(0), "echo exit is 0");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(

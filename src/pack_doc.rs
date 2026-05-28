@@ -174,7 +174,10 @@ fn build_view(source_label: &str, bytes: &[u8], handle: &Handle) -> (String, usi
 /// "This line is structure, not prose — keep it verbatim regardless of paragraph size."
 /// Anything not matched here is a candidate for elision when grouped into a paragraph.
 fn is_structural_line(trimmed: &str) -> bool {
-    is_heading(trimmed) || is_list_item(trimmed) || trimmed.starts_with('>') || trimmed.starts_with("```")
+    is_heading(trimmed)
+        || is_list_item(trimmed)
+        || trimmed.starts_with('>')
+        || trimmed.starts_with("```")
 }
 
 fn is_heading(t: &str) -> bool {
@@ -222,7 +225,10 @@ fn should_elide(lines: usize, chars: usize) -> bool {
 /// `foo/bar.md` → `foo/bar.knapsack.md`; `foo/notes` → `foo/notes.knapsack.md`.
 pub fn sidecar_path(input: &std::path::Path) -> std::path::PathBuf {
     let parent = input.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let file_name = input.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let file_name = input
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let new_name = if let Some(dot) = file_name.rfind('.') {
         format!("{}.knapsack.{}", &file_name[..dot], &file_name[dot + 1..])
     } else {
@@ -305,7 +311,12 @@ pub fn parse_packed(content: &str) -> PackedManifest {
                     }
                 }
                 if let Some(h) = handle {
-                    m.markers.push(RecallMarker { handle: h, line_from, line_to, tokens });
+                    m.markers.push(RecallMarker {
+                        handle: h,
+                        line_from,
+                        line_to,
+                        tokens,
+                    });
                 }
             }
         }
@@ -316,7 +327,8 @@ pub fn parse_packed(content: &str) -> PackedManifest {
 /// Walk a `key=value key=value` body. Values are bare (no quotes) — the writer controls
 /// the shape, and we never embed spaces in values. Keeps the parser zero-dep.
 fn parse_kv(body: &str) -> impl Iterator<Item = (&str, &str)> {
-    body.split_whitespace().filter_map(|tok| tok.split_once('='))
+    body.split_whitespace()
+        .filter_map(|tok| tok.split_once('='))
 }
 
 #[cfg(test)]
@@ -326,17 +338,32 @@ mod tests {
 
     #[test]
     fn sidecar_inserts_knapsack_before_extension() {
-        assert_eq!(sidecar_path(Path::new("CLAUDE.md")), Path::new("CLAUDE.knapsack.md"));
-        assert_eq!(sidecar_path(Path::new("docs/spec.md")), Path::new("docs/spec.knapsack.md"));
-        assert_eq!(sidecar_path(Path::new("notes")), Path::new("notes.knapsack.md"));
+        assert_eq!(
+            sidecar_path(Path::new("CLAUDE.md")),
+            Path::new("CLAUDE.knapsack.md")
+        );
+        assert_eq!(
+            sidecar_path(Path::new("docs/spec.md")),
+            Path::new("docs/spec.knapsack.md")
+        );
+        assert_eq!(
+            sidecar_path(Path::new("notes")),
+            Path::new("notes.knapsack.md")
+        );
     }
 
     #[test]
     fn heading_detector_requires_space_after_hashes() {
         assert!(is_heading("# x"));
         assert!(is_heading("###### x"));
-        assert!(!is_heading("#x"), "no space → not a heading (could be #!/...)");
-        assert!(!is_heading("####### x"), "7 hashes → not a CommonMark heading");
+        assert!(
+            !is_heading("#x"),
+            "no space → not a heading (could be #!/...)"
+        );
+        assert!(
+            !is_heading("####### x"),
+            "7 hashes → not a CommonMark heading"
+        );
         assert!(!is_heading(""));
     }
 
@@ -369,8 +396,18 @@ mod tests {
         assert_eq!(
             m.markers,
             vec![
-                RecallMarker { handle: "ks_abc123".into(), line_from: 12, line_to: 30, tokens: 178 },
-                RecallMarker { handle: "ks_abc123".into(), line_from: 44, line_to: 58, tokens: 52 },
+                RecallMarker {
+                    handle: "ks_abc123".into(),
+                    line_from: 12,
+                    line_to: 30,
+                    tokens: 178
+                },
+                RecallMarker {
+                    handle: "ks_abc123".into(),
+                    line_from: 44,
+                    line_to: 58,
+                    tokens: 52
+                },
             ]
         );
     }
@@ -386,6 +423,9 @@ mod tests {
         assert!(m.whole_file_handle.is_none());
         assert_eq!(m.markers.len(), 1);
         assert_eq!(m.markers[0].handle, "ks_xyz");
-        assert_eq!(m.markers[0].tokens, 0, "missing tokens key falls back to 0, not panic");
+        assert_eq!(
+            m.markers[0].tokens, 0,
+            "missing tokens key falls back to 0, not panic"
+        );
     }
 }

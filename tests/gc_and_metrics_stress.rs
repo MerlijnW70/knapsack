@@ -18,7 +18,10 @@ use knapsack::store::Store;
 use std::path::PathBuf;
 
 fn tmpdir(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let d = std::env::temp_dir().join(format!("kn-gc-{}-{}-{}", tag, std::process::id(), t));
     std::fs::create_dir_all(&d).unwrap();
     d
@@ -28,15 +31,23 @@ fn tmpdir(tag: &str) -> PathBuf {
 
 #[test]
 fn gc_on_missing_store_directory_doesnt_panic() {
-    let dir = std::env::temp_dir().join(format!("kn-gc-noexist-{}-{}",
+    let dir = std::env::temp_dir().join(format!(
+        "kn-gc-noexist-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
     assert!(!dir.exists());
     let store = Store::new(dir.clone()); // creates it
-    // Even though Store::new created the dir, it's empty.
+                                         // Even though Store::new created the dir, it's empty.
     let r = gc::gc(&store, 0, true);
     let text = gc::format(&r);
-    assert!(text.contains("knapsack gc"), "report renders for empty store: {text}");
+    assert!(
+        text.contains("knapsack gc"),
+        "report renders for empty store: {text}"
+    );
 }
 
 #[test]
@@ -81,7 +92,10 @@ fn gc_real_run_with_zero_threshold_deletes_blocks() {
     let _r = gc::gc(&store, 0, false);
 
     // Block should now be gone
-    assert!(store.get(&h).is_none(), "real gc with threshold 0 must delete");
+    assert!(
+        store.get(&h).is_none(),
+        "real gc with threshold 0 must delete"
+    );
 }
 
 #[test]
@@ -92,7 +106,10 @@ fn gc_threshold_higher_than_oldest_block_age_is_noop() {
     // 1 year threshold — block is much younger
     let r = gc::gc(&store, 365 * 86_400, false);
     let text = gc::format(&r);
-    assert!(store.get(&h).is_some(), "young block must survive a 1-year threshold");
+    assert!(
+        store.get(&h).is_some(),
+        "young block must survive a 1-year threshold"
+    );
     let _ = text;
 }
 
@@ -107,12 +124,18 @@ fn metrics_handles_10k_compress_events() {
         metrics::record_compress(&format!("sess-{}", i % 5), 1000, 500, 500, 10, 0);
     }
     let write_dur = start.elapsed();
-    assert!(write_dur.as_secs() < 5, "writing 10K metrics took {write_dur:?}");
+    assert!(
+        write_dur.as_secs() < 5,
+        "writing 10K metrics took {write_dur:?}"
+    );
 
     let start = std::time::Instant::now();
     let summary = metrics::summary();
     let read_dur = start.elapsed();
-    assert!(read_dur.as_secs() < 5, "reading 10K metrics took {read_dur:?}");
+    assert!(
+        read_dur.as_secs() < 5,
+        "reading 10K metrics took {read_dur:?}"
+    );
 
     assert_eq!(summary.compress_events, 10_000);
     assert!(summary.raw > 0);
@@ -124,11 +147,15 @@ fn metrics_skips_corrupt_lines_keeps_valid_ones() {
     let metrics_path = sb.join("metrics.jsonl");
 
     let valid_line = r#"{"t":1700000000000.0,"event":"compress","session":"a","raw":100,"shown":50,"saved":50,"delta_hits":0,"evicted":0}"#;
-    let content = format!("{valid_line}\nnot json at all\n{valid_line}\n{{ broken json\n{valid_line}\n");
+    let content =
+        format!("{valid_line}\nnot json at all\n{valid_line}\n{{ broken json\n{valid_line}\n");
     std::fs::write(&metrics_path, &content).unwrap();
 
     let summary = metrics::summary();
-    assert_eq!(summary.compress_events, 3, "must count only the 3 valid lines, skip corrupt");
+    assert_eq!(
+        summary.compress_events, 3,
+        "must count only the 3 valid lines, skip corrupt"
+    );
     assert_eq!(summary.raw, 300);
     assert_eq!(summary.saved, 150);
 }
@@ -142,7 +169,10 @@ fn metrics_skips_lines_missing_event_field() {
     std::fs::write(&metrics_path, content).unwrap();
 
     let summary = metrics::summary();
-    assert_eq!(summary.compress_events, 1, "only the line with event=compress counts");
+    assert_eq!(
+        summary.compress_events, 1,
+        "only the line with event=compress counts"
+    );
 }
 
 #[test]
@@ -162,7 +192,10 @@ fn metrics_with_bom_at_start() {
     let summary = metrics::summary();
     // The first line gets the BOM smushed onto it — won't parse as JSON.
     // The second line is clean and should count. So we expect at least 1.
-    assert!(summary.compress_events >= 1, "at least 1 line parses past the BOM");
+    assert!(
+        summary.compress_events >= 1,
+        "at least 1 line parses past the BOM"
+    );
 }
 
 #[test]
@@ -170,8 +203,22 @@ fn metrics_huge_numeric_values_dont_overflow_reporter() {
     let _sb = EnvSandbox::new("metrics-huge-nums");
 
     // Big but representable numbers
-    metrics::record_compress("session-x", 1_000_000_000, 100_000, 999_900_000, 1_000_000, 0);
-    metrics::record_compress("session-x", 1_000_000_000, 100_000, 999_900_000, 1_000_000, 0);
+    metrics::record_compress(
+        "session-x",
+        1_000_000_000,
+        100_000,
+        999_900_000,
+        1_000_000,
+        0,
+    );
+    metrics::record_compress(
+        "session-x",
+        1_000_000_000,
+        100_000,
+        999_900_000,
+        1_000_000,
+        0,
+    );
 
     let summary = metrics::summary();
     assert_eq!(summary.compress_events, 2);

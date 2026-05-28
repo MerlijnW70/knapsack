@@ -8,10 +8,21 @@ use std::io::Write;
 use std::path::PathBuf;
 
 fn tmp(tag: &str, contents: Option<&str>) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let p = std::env::temp_dir().join(format!("knapsack-inst-{}-{}-{}.json", tag, std::process::id(), t));
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let p = std::env::temp_dir().join(format!(
+        "knapsack-inst-{}-{}-{}.json",
+        tag,
+        std::process::id(),
+        t
+    ));
     if let Some(c) = contents {
-        std::fs::File::create(&p).unwrap().write_all(c.as_bytes()).unwrap();
+        std::fs::File::create(&p)
+            .unwrap()
+            .write_all(c.as_bytes())
+            .unwrap();
     }
     p
 }
@@ -21,10 +32,18 @@ fn hook_merges_without_clobbering_and_is_idempotent() {
     // Pre-existing settings with an unrelated model + an unrelated Edit hook.
     let p = tmp(
         "settings",
-        Some(r#"{"model":"opus","hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"echo hi"}]}]}}"#),
+        Some(
+            r#"{"model":"opus","hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"echo hi"}]}]}}"#,
+        ),
     );
 
-    assert!(matches!(patch_settings_file(&p, "/bin/knapsack").unwrap(), Patch::Changed(Some(_))), "first patch changes + backs up");
+    assert!(
+        matches!(
+            patch_settings_file(&p, "/bin/knapsack").unwrap(),
+            Patch::Changed(Some(_))
+        ),
+        "first patch changes + backs up"
+    );
     assert!(settings_has_hook(&p));
 
     // unrelated content preserved
@@ -38,13 +57,23 @@ fn hook_merges_without_clobbering_and_is_idempotent() {
     }
 
     // idempotent
-    assert!(matches!(patch_settings_file(&p, "/bin/knapsack").unwrap(), Patch::NoChange));
+    assert!(matches!(
+        patch_settings_file(&p, "/bin/knapsack").unwrap(),
+        Patch::NoChange
+    ));
 
     // reversible
-    assert!(matches!(unpatch_settings_file(&p).unwrap(), Patch::Changed(_)));
+    assert!(matches!(
+        unpatch_settings_file(&p).unwrap(),
+        Patch::Changed(_)
+    ));
     assert!(!settings_has_hook(&p));
     let v = json::parse(&std::fs::read_to_string(&p).unwrap()).unwrap();
-    assert_eq!(v.get("model").and_then(|x| x.as_str()), Some("opus"), "unrelated content survives uninstall");
+    assert_eq!(
+        v.get("model").and_then(|x| x.as_str()),
+        Some("opus"),
+        "unrelated content survives uninstall"
+    );
     let _ = std::fs::remove_file(&p);
 }
 
@@ -63,34 +92,74 @@ fn repoints_a_stale_hook_instead_of_no_oping() {
         )),
     );
 
-    assert_eq!(hook_binary(&p).as_deref(), Some("H:/old/knapsack-rs/target/release/knapsack.exe"), "starts stale");
+    assert_eq!(
+        hook_binary(&p).as_deref(),
+        Some("H:/old/knapsack-rs/target/release/knapsack.exe"),
+        "starts stale"
+    );
 
     // converge to the canonical bin
-    assert!(matches!(patch_settings_file(&p, "C:/Users/me/.knapsack/bin/knapsack.exe").unwrap(), Patch::Changed(Some(_))), "stale path must be repointed + backed up");
-    assert_eq!(hook_binary(&p).as_deref(), Some("C:/Users/me/.knapsack/bin/knapsack.exe"), "hook now points at the canonical binary");
+    assert!(
+        matches!(
+            patch_settings_file(&p, "C:/Users/me/.knapsack/bin/knapsack.exe").unwrap(),
+            Patch::Changed(Some(_))
+        ),
+        "stale path must be repointed + backed up"
+    );
+    assert_eq!(
+        hook_binary(&p).as_deref(),
+        Some("C:/Users/me/.knapsack/bin/knapsack.exe"),
+        "hook now points at the canonical binary"
+    );
 
     // the Edit hook survived and no duplicate knapsack hook was appended
     let v = json::parse(&std::fs::read_to_string(&p).unwrap()).unwrap();
     if let json::Json::Arr(a) = v.get("hooks").and_then(|h| h.get("PreToolUse")).unwrap() {
-        assert_eq!(a.len(), 2, "Edit hook kept, knapsack hook rewritten in place (not duplicated)");
+        assert_eq!(
+            a.len(),
+            2,
+            "Edit hook kept, knapsack hook rewritten in place (not duplicated)"
+        );
     } else {
         panic!("PreToolUse not an array");
     }
 
     // already canonical -> NoChange
-    assert!(matches!(patch_settings_file(&p, "C:/Users/me/.knapsack/bin/knapsack.exe").unwrap(), Patch::NoChange), "no-op once canonical");
+    assert!(
+        matches!(
+            patch_settings_file(&p, "C:/Users/me/.knapsack/bin/knapsack.exe").unwrap(),
+            Patch::NoChange
+        ),
+        "no-op once canonical"
+    );
     let _ = std::fs::remove_file(&p);
 }
 
 #[test]
 fn mcp_merges_and_reverses() {
-    let p = tmp("claude", Some(r#"{"mcpServers":{"other":{"command":"x","args":[]}},"numFavorites":3}"#));
-    assert!(matches!(patch_mcp_file(&p, "/bin/knapsack").unwrap(), Patch::Changed(Some(_))));
+    let p = tmp(
+        "claude",
+        Some(r#"{"mcpServers":{"other":{"command":"x","args":[]}},"numFavorites":3}"#),
+    );
+    assert!(matches!(
+        patch_mcp_file(&p, "/bin/knapsack").unwrap(),
+        Patch::Changed(Some(_))
+    ));
     assert!(mcp_has_server(&p));
     let v = json::parse(&std::fs::read_to_string(&p).unwrap()).unwrap();
-    assert!(v.get("mcpServers").and_then(|s| s.get("other")).is_some(), "other server preserved");
-    assert_eq!(v.get("numFavorites").and_then(|x| x.as_f64()), Some(3.0), "unrelated key preserved");
-    assert!(matches!(patch_mcp_file(&p, "/bin/knapsack").unwrap(), Patch::NoChange));
+    assert!(
+        v.get("mcpServers").and_then(|s| s.get("other")).is_some(),
+        "other server preserved"
+    );
+    assert_eq!(
+        v.get("numFavorites").and_then(|x| x.as_f64()),
+        Some(3.0),
+        "unrelated key preserved"
+    );
+    assert!(matches!(
+        patch_mcp_file(&p, "/bin/knapsack").unwrap(),
+        Patch::NoChange
+    ));
     assert!(matches!(unpatch_mcp_file(&p).unwrap(), Patch::Changed(_)));
     assert!(!mcp_has_server(&p));
     let _ = std::fs::remove_file(&p);
@@ -99,7 +168,13 @@ fn mcp_merges_and_reverses() {
 #[test]
 fn creates_file_when_absent() {
     let p = tmp("fresh", None); // does not exist
-    assert!(matches!(patch_settings_file(&p, "/bin/knapsack").unwrap(), Patch::Changed(None)), "no backup when file is new");
+    assert!(
+        matches!(
+            patch_settings_file(&p, "/bin/knapsack").unwrap(),
+            Patch::Changed(None)
+        ),
+        "no backup when file is new"
+    );
     assert!(settings_has_hook(&p));
     let _ = std::fs::remove_file(&p);
 }
@@ -108,8 +183,15 @@ fn creates_file_when_absent() {
 fn unparseable_config_is_left_untouched() {
     let p = tmp("broken", Some("{ this is not json"));
     let before = std::fs::read_to_string(&p).unwrap();
-    assert!(patch_settings_file(&p, "/bin/knapsack").is_err(), "must refuse to write a config it can't parse");
-    assert_eq!(std::fs::read_to_string(&p).unwrap(), before, "file left exactly as-is");
+    assert!(
+        patch_settings_file(&p, "/bin/knapsack").is_err(),
+        "must refuse to write a config it can't parse"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&p).unwrap(),
+        before,
+        "file left exactly as-is"
+    );
     let _ = std::fs::remove_file(&p);
 }
 
@@ -137,10 +219,18 @@ fn rapid_patch_cycles_do_not_clobber_each_others_backups() {
     let mut sorted = backups.clone();
     sorted.sort();
     sorted.dedup();
-    assert_eq!(sorted.len(), backups.len(), "no two backups may share a filename");
+    assert_eq!(
+        sorted.len(),
+        backups.len(),
+        "no two backups may share a filename"
+    );
     // Every backup file must still EXIST on disk (i.e. nothing clobbered).
     for b in &backups {
-        assert!(b.exists(), "backup must survive subsequent patches: {}", b.display());
+        assert!(
+            b.exists(),
+            "backup must survive subsequent patches: {}",
+            b.display()
+        );
     }
     // Cleanup.
     for b in backups {
@@ -163,14 +253,23 @@ fn uninstall_prunes_empty_containers_left_behind() {
     assert!(patch_settings_file(&s, bin).is_ok());
     assert!(patch_mcp_file(&m, bin).is_ok());
 
-    assert!(matches!(unpatch_settings_file(&s).unwrap(), Patch::Changed(_)));
+    assert!(matches!(
+        unpatch_settings_file(&s).unwrap(),
+        Patch::Changed(_)
+    ));
     assert!(matches!(unpatch_mcp_file(&m).unwrap(), Patch::Changed(_)));
 
     let sv = json::parse(&std::fs::read_to_string(&s).unwrap()).unwrap();
     let mv = json::parse(&std::fs::read_to_string(&m).unwrap()).unwrap();
 
-    assert!(sv.get("hooks").is_none(), "empty hooks scaffold pruned, got {sv:?}");
-    assert!(mv.get("mcpServers").is_none(), "empty mcpServers scaffold pruned, got {mv:?}");
+    assert!(
+        sv.get("hooks").is_none(),
+        "empty hooks scaffold pruned, got {sv:?}"
+    );
+    assert!(
+        mv.get("mcpServers").is_none(),
+        "empty mcpServers scaffold pruned, got {mv:?}"
+    );
 
     let _ = std::fs::remove_file(&s);
     let _ = std::fs::remove_file(&m);
@@ -184,7 +283,9 @@ fn uninstall_does_not_prune_user_data() {
     // every time they uninstalled knapsack.
     let s = tmp(
         "user-data-settings",
-        Some(r#"{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"echo edit"}]}]}}"#),
+        Some(
+            r#"{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"echo edit"}]}]}}"#,
+        ),
     );
     let m = tmp(
         "user-data-mcp",
@@ -195,16 +296,24 @@ fn uninstall_does_not_prune_user_data() {
     assert!(patch_settings_file(&s, bin).is_ok());
     assert!(patch_mcp_file(&m, bin).is_ok());
 
-    assert!(matches!(unpatch_settings_file(&s).unwrap(), Patch::Changed(_)));
+    assert!(matches!(
+        unpatch_settings_file(&s).unwrap(),
+        Patch::Changed(_)
+    ));
     assert!(matches!(unpatch_mcp_file(&m).unwrap(), Patch::Changed(_)));
 
     let sv = json::parse(&std::fs::read_to_string(&s).unwrap()).unwrap();
     let mv = json::parse(&std::fs::read_to_string(&m).unwrap()).unwrap();
 
     let pre = sv.get("hooks").and_then(|h| h.get("PreToolUse"));
-    assert!(matches!(pre, Some(json::Json::Arr(a)) if a.len() == 1), "user's Edit hook must survive");
     assert!(
-        mv.get("mcpServers").and_then(|s| s.get("cavewoman")).is_some(),
+        matches!(pre, Some(json::Json::Arr(a)) if a.len() == 1),
+        "user's Edit hook must survive"
+    );
+    assert!(
+        mv.get("mcpServers")
+            .and_then(|s| s.get("cavewoman"))
+            .is_some(),
         "user's cavewoman MCP must survive"
     );
 
@@ -224,7 +333,8 @@ fn apply_returns_success_false_when_patch_fails() {
     let bad_settings = tmp("bad-settings", Some("not json at all"));
     let fresh_mcp = tmp("fresh-mcp", None);
     let store_dir = std::env::temp_dir().join(format!("kn-test-store-{}", std::process::id()));
-    let metrics = std::env::temp_dir().join(format!("kn-test-metrics-{}.jsonl", std::process::id()));
+    let metrics =
+        std::env::temp_dir().join(format!("kn-test-metrics-{}.jsonl", std::process::id()));
     let sessions = std::env::temp_dir().join(format!("kn-test-sessions-{}", std::process::id()));
 
     // SAFETY: these env vars are scoped to this single test process. Other tests
@@ -237,12 +347,23 @@ fn apply_returns_success_false_when_patch_fails() {
     std::env::set_var("KNAPSACK_SESSIONS", &sessions);
 
     // Sanity: confirm the env override is reachable through the canonical accessor.
-    assert_eq!(settings_path(), bad_settings, "test env override must reach apply()");
+    assert_eq!(
+        settings_path(),
+        bad_settings,
+        "test env override must reach apply()"
+    );
     assert_eq!(mcp_config_path(), fresh_mcp);
 
     let result = apply();
-    assert!(!result.success, "apply() must report failure when a patch errored");
-    assert!(result.output.contains("✗ hook NOT patched"), "transcript still shows the ✗ line:\n{}", result.output);
+    assert!(
+        !result.success,
+        "apply() must report failure when a patch errored"
+    );
+    assert!(
+        result.output.contains("✗ hook NOT patched"),
+        "transcript still shows the ✗ line:\n{}",
+        result.output
+    );
 
     std::env::remove_var("KNAPSACK_SETTINGS");
     std::env::remove_var("KNAPSACK_MCP_CONFIG");

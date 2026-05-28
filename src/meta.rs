@@ -93,20 +93,35 @@ impl Meta {
     pub fn from_json(s: &str) -> Option<Self> {
         let v = json::parse(s).ok()?;
         Some(Self {
-            sha256: v.get("sha256").and_then(|x| x.as_str()).map(|s| s.to_string())?,
+            sha256: v
+                .get("sha256")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string())?,
             len: v.get("len").and_then(|x| x.as_f64())? as u64,
             created_at: v.get("created").and_then(|x| x.as_f64()).unwrap_or(0.0) as u64,
             last_accessed: v.get("accessed").and_then(|x| x.as_f64()).unwrap_or(0.0) as u64,
             content_type: v.get("ct").and_then(|x| x.as_str()).map(|s| s.to_string()),
-            source: v.get("source").and_then(|x| x.as_str()).map(|s| s.to_string()),
-            session: v.get("session").and_then(|x| x.as_str()).map(|s| s.to_string()),
-            project: v.get("project").and_then(|x| x.as_str()).map(|s| s.to_string()),
+            source: v
+                .get("source")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string()),
+            session: v
+                .get("session")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string()),
+            project: v
+                .get("project")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string()),
         })
     }
 }
 
 pub fn unix_now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// The sidecar path that pairs with a block at `block_path`. Keeping the bytes file
@@ -178,7 +193,10 @@ mod tests {
         let bytes = b"the original exact bytes";
         let m = Meta::from_bytes(bytes);
         assert!(m.matches(bytes), "same bytes verify");
-        assert!(!m.matches(b"different bytes here"), "different content rejected");
+        assert!(
+            !m.matches(b"different bytes here"),
+            "different content rejected"
+        );
         // Wrong length but byte-shorter content: rejected without paying for SHA-256.
         let mut shortened = bytes.to_vec();
         shortened.pop();
@@ -195,7 +213,10 @@ mod tests {
 
     #[test]
     fn meta_path_appends_meta_extension() {
-        assert_eq!(meta_path(Path::new("/x/ks2_abc")), Path::new("/x/ks2_abc.meta"));
+        assert_eq!(
+            meta_path(Path::new("/x/ks2_abc")),
+            Path::new("/x/ks2_abc.meta")
+        );
     }
 
     #[test]

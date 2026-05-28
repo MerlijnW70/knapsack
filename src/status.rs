@@ -51,7 +51,8 @@ pub fn collect() -> Status {
 
 pub fn collect_from(p: &Paths) -> Status {
     let (total, sessions) = ab::read(&p.metrics);
-    let latest = latest_session_id(&p.metrics).and_then(|id| sessions.get(&id).cloned().map(|a| (id, a)));
+    let latest =
+        latest_session_id(&p.metrics).and_then(|id| sessions.get(&id).cloned().map(|a| (id, a)));
     let (blocks, bytes) = store_size(&p.store);
     Status {
         hook_installed: settings_has_hook(&p.settings),
@@ -205,7 +206,10 @@ fn render_with(s: &Status, verbose: bool) -> String {
     // more than we compressed). "Ready" when the hook is wired but nothing has
     // run yet. This is what makes the headline trustworthy: the user never sees a
     // "saving context" banner above a negative reduction number.
-    let activity = s.latest_session.as_ref().filter(|(_, a)| a.compress_events > 0);
+    let activity = s
+        .latest_session
+        .as_ref()
+        .filter(|(_, a)| a.compress_events > 0);
     let net_positive = activity.as_ref().is_some_and(|(_, a)| a.net() > 0);
     match (&activity, net_positive) {
         (Some(_), true) => o.push_str("Knapsack is saving context\n\n"),
@@ -218,12 +222,18 @@ fn render_with(s: &Status, verbose: bool) -> String {
     // every value column aligns no matter the label length.
     match activity {
         Some((_id, a)) => {
-            o.push_str(&format!("Saved this session: {} tokens\n", commafy(a.saved)));
+            o.push_str(&format!(
+                "Saved this session: {} tokens\n",
+                commafy(a.saved)
+            ));
             // Show Refetched on the default surface ONLY when it materially explains a
             // negative or low reduction percentage — otherwise it's noise on a clean
             // positive run. Verbose surface always shows it when > 0.
             if a.refetched > 0 && (!net_positive || verbose) {
-                o.push_str(&format!("Refetched:          {} tokens\n", commafy(a.refetched)));
+                o.push_str(&format!(
+                    "Refetched:          {} tokens\n",
+                    commafy(a.refetched)
+                ));
             }
             match net_reduction_pct(a) {
                 Some(pct) => o.push_str(&format!("Reduction:          {}%\n", pct)),
@@ -249,15 +259,26 @@ fn render_with(s: &Status, verbose: bool) -> String {
     let output_active = s.mcp_installed;
     o.push_str(&format!(
         "Output reduction:   {}\n",
-        if output_active { "active" } else { "off (recall not configured)" }
+        if output_active {
+            "active"
+        } else {
+            "off (recall not configured)"
+        }
     ));
 
     // Recall health. Failed expands are the one thing that should jump out. Latest-
     // session scope keeps old failures from shouting forever; lifetime failures still
     // get a quieter mention in the verbose lifetime footer.
-    let session_failed = s.latest_session.as_ref().map(|(_, a)| a.failed_expands).unwrap_or(0);
+    let session_failed = s
+        .latest_session
+        .as_ref()
+        .map(|(_, a)| a.failed_expands)
+        .unwrap_or(0);
     if session_failed > 0 {
-        o.push_str(&format!("Recall:             ⚠ {} failed (run `knapsack doctor`)\n", session_failed));
+        o.push_str(&format!(
+            "Recall:             ⚠ {} failed (run `knapsack doctor`)\n",
+            session_failed
+        ));
     } else if activity.is_some() {
         o.push_str("Recall:             healthy\n");
     } else {
@@ -309,10 +330,16 @@ fn render_with(s: &Status, verbose: bool) -> String {
             s.session_count
         ));
         if s.total.refetched > 0 {
-            o.push_str(&format!(" · {} refetched on recall", commafy(s.total.refetched)));
+            o.push_str(&format!(
+                " · {} refetched on recall",
+                commafy(s.total.refetched)
+            ));
         }
         if s.total.failed_expands > 0 {
-            o.push_str(&format!(" · {} recall failures total", s.total.failed_expands));
+            o.push_str(&format!(
+                " · {} recall failures total",
+                s.total.failed_expands
+            ));
         }
         o.push('\n');
     }

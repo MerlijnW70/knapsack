@@ -18,7 +18,8 @@ pub fn tokens(s: &str) -> usize {
             _ => sym += 1,
         }
     }
-    (a as f64 * W_ALPHA + d as f64 * W_DIGIT + sym as f64 * W_SYMBOL + sp as f64 * W_SPACE).ceil() as usize
+    (a as f64 * W_ALPHA + d as f64 * W_DIGIT + sym as f64 * W_SYMBOL + sp as f64 * W_SPACE).ceil()
+        as usize
 }
 
 /// Token estimate for raw bytes (lossy-decoded). Used for the "raw" baseline.

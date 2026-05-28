@@ -20,15 +20,23 @@ use knapsack::json::{self, Json};
 use std::path::PathBuf;
 
 fn tmpfile(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     std::env::temp_dir().join(format!("kn-matcher-{}-{}-{}", tag, std::process::id(), t))
 }
 
 /// Read the `matcher` field of the (single) knapsack PreToolUse entry.
 fn extract_knapsack_matcher(settings_path: &PathBuf) -> String {
     let v = json::parse(&std::fs::read_to_string(settings_path).unwrap()).unwrap();
-    let pre = v.get("hooks").and_then(|h| h.get("PreToolUse")).expect("PreToolUse present");
-    let Json::Arr(entries) = pre else { panic!("PreToolUse not array") };
+    let pre = v
+        .get("hooks")
+        .and_then(|h| h.get("PreToolUse"))
+        .expect("PreToolUse present");
+    let Json::Arr(entries) = pre else {
+        panic!("PreToolUse not array")
+    };
     for e in entries {
         // The entry is "ours" if its hooks[].command contains "knapsack" + "hook".
         let is_ours = matches!(e.get("hooks"), Some(Json::Arr(hs)) if hs.iter().any(|h| {
@@ -39,7 +47,11 @@ fn extract_knapsack_matcher(settings_path: &PathBuf) -> String {
         if !is_ours {
             continue;
         }
-        return e.get("matcher").and_then(|m| m.as_str()).expect("knapsack entry has matcher").to_string();
+        return e
+            .get("matcher")
+            .and_then(|m| m.as_str())
+            .expect("knapsack entry has matcher")
+            .to_string();
     }
     panic!("no knapsack entry found in PreToolUse")
 }
@@ -255,7 +267,10 @@ fn matcher_missing_field_is_added_back_during_repair() {
     std::fs::write(&p, no_matcher).unwrap();
 
     let r = patch_settings_file(&p, "/bin/knapsack");
-    assert!(matches!(r, Ok(Patch::Changed(_))), "missing matcher counts as drift");
+    assert!(
+        matches!(r, Ok(Patch::Changed(_))),
+        "missing matcher counts as drift"
+    );
     assert_eq!(extract_knapsack_matcher(&p), "Bash|Read");
     let _ = std::fs::remove_file(&p);
 }

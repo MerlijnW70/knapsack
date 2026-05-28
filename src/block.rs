@@ -23,7 +23,9 @@ pub fn split_lines(b: &[u8]) -> Vec<(usize, usize)> {
 }
 
 pub fn line_is_blank(b: &[u8], s: usize, e: usize) -> bool {
-    b[s..e].iter().all(|&c| c == b' ' || c == b'\t' || c == b'\r' || c == b'\n')
+    b[s..e]
+        .iter()
+        .all(|&c| c == b' ' || c == b'\t' || c == b'\r' || c == b'\n')
 }
 
 const LOG_CHUNK: usize = 6;
@@ -367,8 +369,16 @@ mod tests {
         b"   Compiling crate v0.1.0\n    Finished `test` profile\n     Running tests/foo.rs\ntest a ... ok\ntest b ... ok\ntest c ... ok\n";
 
     fn assert_tiles(bytes: &[u8], blocks: &[(usize, usize)]) {
-        assert_eq!(blocks.first().map(|b| b.0), Some(0), "first block must start at 0");
-        assert_eq!(blocks.last().map(|b| b.1), Some(bytes.len()), "last block must end at len");
+        assert_eq!(
+            blocks.first().map(|b| b.0),
+            Some(0),
+            "first block must start at 0"
+        );
+        assert_eq!(
+            blocks.last().map(|b| b.1),
+            Some(bytes.len()),
+            "last block must end at len"
+        );
         for w in blocks.windows(2) {
             assert_eq!(w[0].1, w[1].0, "blocks must tile with no gap or overlap");
         }
@@ -376,7 +386,13 @@ mod tests {
 
     #[test]
     fn log_blocks_tile_exactly() {
-        for input in [LOG_A, LOG_B, b"" as &[u8], b"no trailing newline", b"\n\n\n"] {
+        for input in [
+            LOG_A,
+            LOG_B,
+            b"" as &[u8],
+            b"no trailing newline",
+            b"\n\n\n",
+        ] {
             let blocks = split_blocks(input, ContentType::Log);
             if input.is_empty() {
                 assert!(blocks.is_empty());
@@ -401,7 +417,11 @@ mod tests {
                 String::from_utf8_lossy(slice)
             );
         }
-        assert_eq!(b.len(), a.len() + 1, "B differs from A only by the inserted header block");
+        assert_eq!(
+            b.len(),
+            a.len() + 1,
+            "B differs from A only by the inserted header block"
+        );
     }
 
     #[test]
@@ -411,7 +431,11 @@ mod tests {
             .map(|&(s, e)| String::from_utf8_lossy(&LOG_A[s..e]).into_owned())
             .collect();
         for want in ["test a ... ok\n", "test b ... ok\n", "test c ... ok\n"] {
-            assert!(texts.iter().any(|t| t == want), "missing per-test block {:?}", want);
+            assert!(
+                texts.iter().any(|t| t == want),
+                "missing per-test block {:?}",
+                want
+            );
         }
     }
 
@@ -425,7 +449,10 @@ mod tests {
         let blocks = split_blocks(s.as_bytes(), ContentType::Log);
         assert_tiles(s.as_bytes(), &blocks);
         for &(bs, be) in &blocks {
-            assert!(count_lines(&s.as_bytes()[bs..be]) <= LOG_CHUNK, "blocks stay bounded");
+            assert!(
+                count_lines(&s.as_bytes()[bs..be]) <= LOG_CHUNK,
+                "blocks stay bounded"
+            );
         }
     }
 }

@@ -58,18 +58,24 @@ impl Packer<'_> {
         }
         // Write the whole run's blocks in parallel (file creation dominates large packs).
         let block_handles = {
-            let slices: Vec<&[u8]> = self.new_run.iter().map(|&(s, e)| &self.bytes[s..e]).collect();
+            let slices: Vec<&[u8]> = self
+                .new_run
+                .iter()
+                .map(|&(s, e)| &self.bytes[s..e])
+                .collect();
             self.store.put_many(&slices)
         };
         for (&(s, e), h) in self.new_run.iter().zip(block_handles) {
-            self.ledger.note(&h, self.step, tokens_bytes(&self.bytes[s..e]));
+            self.ledger
+                .note(&h, self.step, tokens_bytes(&self.bytes[s..e]));
             self.handles.push(h);
         }
         let rs = self.new_run.first().unwrap().0;
         let re = self.new_run.last().unwrap().1;
         let (view, elisions) = structural::compress(self.bytes, rs, re, self.ct);
         for el in elisions {
-            self.store.put_with_handle(&el.handle, &self.bytes[el.start..el.end]);
+            self.store
+                .put_with_handle(&el.handle, &self.bytes[el.start..el.end]);
             self.handles.push(el.handle);
         }
         self.out.push(view);
@@ -99,7 +105,13 @@ impl Packer<'_> {
     }
 }
 
-pub fn pack(bytes: &[u8], ct: ContentType, store: &Store, ledger: &mut Ledger, step: u64) -> PackResult {
+pub fn pack(
+    bytes: &[u8],
+    ct: ContentType,
+    store: &Store,
+    ledger: &mut Ledger,
+    step: u64,
+) -> PackResult {
     pack_with_transcript(bytes, ct, store, ledger, step, None)
 }
 
@@ -139,8 +151,11 @@ pub fn pack_with_transcript(
         // Resident only when it's both ledger-resident AND present in the post-boundary
         // transcript window. When transcript_resident is None (no transcript provided
         // or unreadable), this is a no-op and we use ledger-only — the safe fallback.
-        let transcript_says_resident = transcript_resident.map(|set| set.contains(&bh)).unwrap_or(true);
-        let effective_resident = matches!(ledger_res, Residency::Resident) && transcript_says_resident;
+        let transcript_says_resident = transcript_resident
+            .map(|set| set.contains(&bh))
+            .unwrap_or(true);
+        let effective_resident =
+            matches!(ledger_res, Residency::Resident) && transcript_says_resident;
 
         if effective_resident {
             p.flush_new();
@@ -149,7 +164,8 @@ pub fn pack_with_transcript(
             // Account "I thought it was resident but transcript says it's not" the same
             // way we account ledger-evicted: a re-send instead of a backref. That keeps
             // metrics honest — the engine paid for re-sending what looked-resident.
-            let downgraded_by_transcript = matches!(ledger_res, Residency::Resident) && !transcript_says_resident;
+            let downgraded_by_transcript =
+                matches!(ledger_res, Residency::Resident) && !transcript_says_resident;
             if ledger_res == Residency::Evicted || downgraded_by_transcript {
                 p.evicted_resends += 1;
             }
@@ -186,10 +202,20 @@ pub fn pack_with_transcript(
             }
             (stateless_view, stateless_shown, 0, 0) // emitted the stateless view; no delta used
         } else {
-            (conditional_view, conditional_shown, p.delta_hits, p.evicted_resends)
+            (
+                conditional_view,
+                conditional_shown,
+                p.delta_hits,
+                p.evicted_resends,
+            )
         }
     } else {
-        (conditional_view, conditional_shown, p.delta_hits, p.evicted_resends)
+        (
+            conditional_view,
+            conditional_shown,
+            p.delta_hits,
+            p.evicted_resends,
+        )
     };
 
     // NEVER-WORSE-THAN-RAW guard. The two earlier strategies (conditional delta and stateless)

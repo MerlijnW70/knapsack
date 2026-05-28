@@ -51,7 +51,12 @@ pub struct ScanResult {
 
 impl ScanResult {
     fn empty(ok: bool) -> Self {
-        Self { resident: HashSet::new(), last_boundary: None, ok, lines_scanned: 0 }
+        Self {
+            resident: HashSet::new(),
+            last_boundary: None,
+            ok,
+            lines_scanned: 0,
+        }
     }
 }
 
@@ -89,7 +94,12 @@ pub fn scan(path: &Path) -> ScanResult {
         collect_handles(line, &mut resident);
     }
 
-    ScanResult { resident, last_boundary, ok: true, lines_scanned: lines.len() }
+    ScanResult {
+        resident,
+        last_boundary,
+        ok: true,
+        lines_scanned: lines.len(),
+    }
 }
 
 /// Inspect one JSONL line and return a boundary type if it looks like one. Permissive:
@@ -114,7 +124,11 @@ fn boundary_in_line(line: &str) -> Option<Boundary> {
         }
     }
     // Nested: message.role + message.content == "/clear"
-    if let Some(content) = v.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_str()) {
+    if let Some(content) = v
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+    {
         if content.trim() == "/clear" {
             return Some(Boundary::Clear);
         }
@@ -132,7 +146,9 @@ fn boundary_from_label(s: &str) -> Option<Boundary> {
     match lc.as_str() {
         "clear" => Some(Boundary::Clear),
         "compact" | "compaction" | "compact_complete" | "compacted" => Some(Boundary::Compaction),
-        "session_start" | "session_restart" | "session_reset" | "restart" => Some(Boundary::Restart),
+        "session_start" | "session_restart" | "session_reset" | "restart" => {
+            Some(Boundary::Restart)
+        }
         _ => None,
     }
 }
@@ -214,8 +230,15 @@ mod tests {
     fn handle_collector_rejects_wrong_lengths() {
         let mut out = HashSet::new();
         // 31 hex (off by one), and 11 hex (off by one for legacy). Neither must collect.
-        collect_handles("ks2_0123456789abcdef0123456789abcde ks_01234567890", &mut out);
-        assert!(out.is_empty(), "off-by-one lengths must not be collected: {:?}", out);
+        collect_handles(
+            "ks2_0123456789abcdef0123456789abcde ks_01234567890",
+            &mut out,
+        );
+        assert!(
+            out.is_empty(),
+            "off-by-one lengths must not be collected: {:?}",
+            out
+        );
     }
 
     #[test]
@@ -241,7 +264,10 @@ mod tests {
 
     #[test]
     fn boundary_detector_finds_session_restart() {
-        assert_eq!(boundary_in_line(r#"{"type":"session_start"}"#), Some(Boundary::Restart));
+        assert_eq!(
+            boundary_in_line(r#"{"type":"session_start"}"#),
+            Some(Boundary::Restart)
+        );
     }
 
     #[test]

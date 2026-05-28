@@ -10,8 +10,16 @@ use std::io::Write;
 use std::path::PathBuf;
 
 fn tmpdir(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let d = std::env::temp_dir().join(format!("knapsack-packdoc-{}-{}-{}", tag, std::process::id(), t));
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let d = std::env::temp_dir().join(format!(
+        "knapsack-packdoc-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ));
     std::fs::create_dir_all(&d).unwrap();
     d
 }
@@ -20,7 +28,10 @@ fn write_file(p: &std::path::Path, contents: &str) {
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent).unwrap();
     }
-    std::fs::File::create(p).unwrap().write_all(contents.as_bytes()).unwrap();
+    std::fs::File::create(p)
+        .unwrap()
+        .write_all(contents.as_bytes())
+        .unwrap();
 }
 
 /// Realistic "CLAUDE.md / AGENTS.md / project-notes.md"-style fixture. Two long prose
@@ -84,12 +95,21 @@ fn writes_side_car_next_to_the_original_and_leaves_original_untouched() {
     let r = pack_doc(src.to_string_lossy().as_ref(), &before, &store);
 
     let out = sidecar_path(&src);
-    assert_eq!(out.file_name().unwrap().to_string_lossy(), "CLAUDE.knapsack.md");
+    assert_eq!(
+        out.file_name().unwrap().to_string_lossy(),
+        "CLAUDE.knapsack.md"
+    );
     std::fs::write(&out, r.view.as_bytes()).unwrap();
-    assert!(out.exists(), "side-car must be written next to the original");
+    assert!(
+        out.exists(),
+        "side-car must be written next to the original"
+    );
 
     let after = std::fs::read(&src).unwrap();
-    assert_eq!(before, after, "original file must be byte-identical to before");
+    assert_eq!(
+        before, after,
+        "original file must be byte-identical to before"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -105,7 +125,9 @@ fn byte_exact_original_is_recoverable_from_the_store() {
     let original = realistic_memory_fixture().into_bytes();
     let r = pack_doc("CLAUDE.md", &original, &store);
 
-    let recalled = store.get(&r.handle).expect("handle must resolve to stored bytes");
+    let recalled = store
+        .get(&r.handle)
+        .expect("handle must resolve to stored bytes");
     assert_eq!(recalled, original, "store must return byte-exact original");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -121,8 +143,17 @@ fn realistic_memory_file_shrinks_meaningfully() {
     let original = realistic_memory_fixture().into_bytes();
     let r = pack_doc("notes.md", &original, &store);
 
-    assert!(r.packed_tokens < r.raw_tokens, "expected packed < raw, got {}/{}", r.packed_tokens, r.raw_tokens);
-    assert!(r.elisions >= 1, "expected at least one prose block elided, got {}", r.elisions);
+    assert!(
+        r.packed_tokens < r.raw_tokens,
+        "expected packed < raw, got {}/{}",
+        r.packed_tokens,
+        r.raw_tokens
+    );
+    assert!(
+        r.elisions >= 1,
+        "expected at least one prose block elided, got {}",
+        r.elisions
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -140,13 +171,37 @@ fn code_fences_paths_commands_and_decisions_survive() {
     let v = &r.view;
     assert!(v.contains("```rust"), "code-fence open survives:\n{}", v);
     assert!(v.contains("```\n"), "code-fence close survives:\n{}", v);
-    assert!(v.contains("fn route(event: &Event)"), "code body survives verbatim:\n{}", v);
-    assert!(v.contains("/opt/atlas"), "absolute path survives (lives in short paragraph):\n{}", v);
-    assert!(v.contains("`kubectl apply -f k8s/atlas.yaml`"), "command in a list item survives:\n{}", v);
-    assert!(v.contains("# Project Atlas"), "top-level heading survives:\n{}", v);
+    assert!(
+        v.contains("fn route(event: &Event)"),
+        "code body survives verbatim:\n{}",
+        v
+    );
+    assert!(
+        v.contains("/opt/atlas"),
+        "absolute path survives (lives in short paragraph):\n{}",
+        v
+    );
+    assert!(
+        v.contains("`kubectl apply -f k8s/atlas.yaml`"),
+        "command in a list item survives:\n{}",
+        v
+    );
+    assert!(
+        v.contains("# Project Atlas"),
+        "top-level heading survives:\n{}",
+        v
+    );
     assert!(v.contains("## Operations"), "subheading survives:\n{}", v);
-    assert!(v.contains("Decision (2026-02)"), "blockquote-anchored decision survives:\n{}", v);
-    assert!(v.contains("- [ ] Repoint the staging URL"), "checkbox list item survives:\n{}", v);
+    assert!(
+        v.contains("Decision (2026-02)"),
+        "blockquote-anchored decision survives:\n{}",
+        v
+    );
+    assert!(
+        v.contains("- [ ] Repoint the staging URL"),
+        "checkbox list item survives:\n{}",
+        v
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -165,8 +220,16 @@ fn visible_marker_is_human_readable_and_has_no_hashes() {
     // Strip out every HTML comment to look at ONLY what a human reading the file sees.
     let visible = strip_html_comments(&r.view);
 
-    assert!(visible.contains("[Knapsack: section omitted"), "human-facing marker present:\n{}", visible);
-    assert!(visible.contains("exact recall available"), "tells the reader recall exists:\n{}", visible);
+    assert!(
+        visible.contains("[Knapsack: section omitted"),
+        "human-facing marker present:\n{}",
+        visible
+    );
+    assert!(
+        visible.contains("exact recall available"),
+        "tells the reader recall exists:\n{}",
+        visible
+    );
 
     // The visible portion must not leak the handle. Programs grepping for `ks_` should
     // get zero hits in the rendered view — handles only live in HTML metadata.
@@ -191,13 +254,30 @@ fn hidden_metadata_carries_handle_and_line_range_for_recall() {
     let r = pack_doc("notes.md", &original, &store);
 
     let m = parse_packed(&r.view);
-    assert_eq!(m.whole_file_handle.as_deref(), Some(r.handle.as_str()), "header carries the whole-file handle");
-    assert_eq!(m.source.as_deref(), Some("notes.md"), "header carries the source label");
-    assert!(!m.markers.is_empty(), "at least one recall marker survived round-trip");
+    assert_eq!(
+        m.whole_file_handle.as_deref(),
+        Some(r.handle.as_str()),
+        "header carries the whole-file handle"
+    );
+    assert_eq!(
+        m.source.as_deref(),
+        Some("notes.md"),
+        "header carries the source label"
+    );
+    assert!(
+        !m.markers.is_empty(),
+        "at least one recall marker survived round-trip"
+    );
     for marker in &m.markers {
-        assert_eq!(marker.handle, r.handle, "every marker cites the whole-file handle");
+        assert_eq!(
+            marker.handle, r.handle,
+            "every marker cites the whole-file handle"
+        );
         assert!(marker.line_from >= 1, "1-indexed line range");
-        assert!(marker.line_to >= marker.line_from, "inclusive A-B with A <= B");
+        assert!(
+            marker.line_to >= marker.line_from,
+            "inclusive A-B with A <= B"
+        );
         assert!(marker.tokens > 0, "tokens count populated");
     }
 
@@ -305,9 +385,21 @@ fn dry_run_writes_nothing() {
         .output()
         .expect("spawn knapsack");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "dry-run should exit 0; stdout=\n{}\nstderr=\n{}", stdout, String::from_utf8_lossy(&output.stderr));
-    assert!(stdout.contains("Dry run — nothing written"), "dry-run banner present:\n{}", stdout);
-    assert!(!expected_sidecar.exists(), "dry-run must not create the side-car file");
+    assert!(
+        output.status.success(),
+        "dry-run should exit 0; stdout=\n{}\nstderr=\n{}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("Dry run — nothing written"),
+        "dry-run banner present:\n{}",
+        stdout
+    );
+    assert!(
+        !expected_sidecar.exists(),
+        "dry-run must not create the side-car file"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -336,8 +428,14 @@ fn force_writes_even_when_packed_is_not_smaller() {
         .env("KNAPSACK_METRICS", dir.join("metrics.jsonl"))
         .output()
         .expect("spawn knapsack");
-    assert!(!no_force.status.success(), "no-savings + no --force must NOT succeed");
-    assert!(!expected_sidecar.exists(), "must not have written the side-car");
+    assert!(
+        !no_force.status.success(),
+        "no-savings + no --force must NOT succeed"
+    );
+    assert!(
+        !expected_sidecar.exists(),
+        "must not have written the side-car"
+    );
 
     // 2. With --force: writes anyway, exit 0, side-car present.
     let forced = std::process::Command::new(&bin)
@@ -346,7 +444,10 @@ fn force_writes_even_when_packed_is_not_smaller() {
         .env("KNAPSACK_METRICS", dir.join("metrics.jsonl"))
         .output()
         .expect("spawn knapsack");
-    assert!(forced.status.success(), "with --force, must succeed even when packed >= original");
+    assert!(
+        forced.status.success(),
+        "with --force, must succeed even when packed >= original"
+    );
     assert!(expected_sidecar.exists(), "side-car written under --force");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -378,7 +479,11 @@ fn inspect_packed_file_lists_recall_index() {
         .env("KNAPSACK_METRICS", dir.join("metrics.jsonl"))
         .output()
         .expect("spawn knapsack pack");
-    assert!(pack.status.success(), "pack should succeed under --force; stderr=\n{}", String::from_utf8_lossy(&pack.stderr));
+    assert!(
+        pack.status.success(),
+        "pack should succeed under --force; stderr=\n{}",
+        String::from_utf8_lossy(&pack.stderr)
+    );
 
     let sidecar = dir.join("CLAUDE.knapsack.md");
     assert!(sidecar.exists(), "side-car written");
@@ -389,13 +494,33 @@ fn inspect_packed_file_lists_recall_index() {
         .env("KNAPSACK_METRICS", dir.join("metrics.jsonl"))
         .output()
         .expect("spawn knapsack inspect");
-    assert!(inspect.status.success(), "inspect on a packed file should succeed; stderr=\n{}", String::from_utf8_lossy(&inspect.stderr));
+    assert!(
+        inspect.status.success(),
+        "inspect on a packed file should succeed; stderr=\n{}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
     let out = String::from_utf8_lossy(&inspect.stdout);
-    assert!(out.contains("Knapsack packed view"), "report header present:\n{}", out);
-    assert!(out.contains("whole-file handle"), "whole-file handle line present:\n{}", out);
-    assert!(out.contains("knapsack expand"), "recall command suggested:\n{}", out);
+    assert!(
+        out.contains("Knapsack packed view"),
+        "report header present:\n{}",
+        out
+    );
+    assert!(
+        out.contains("whole-file handle"),
+        "whole-file handle line present:\n{}",
+        out
+    );
+    assert!(
+        out.contains("knapsack expand"),
+        "recall command suggested:\n{}",
+        out
+    );
     assert!(out.contains("elisions:"), "elision count present:\n{}", out);
-    assert!(out.contains("lines "), "per-marker line range present:\n{}", out);
+    assert!(
+        out.contains("lines "),
+        "per-marker line range present:\n{}",
+        out
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -439,7 +564,8 @@ fn inspect_rejects_file_with_only_ks_recall_markers_no_header() {
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("missing `<!-- ks-pack source=") || stderr.contains("does not look like a knapsack-packed file"),
+        stderr.contains("missing `<!-- ks-pack source=")
+            || stderr.contains("does not look like a knapsack-packed file"),
         "stderr must name the missing header; got: {stderr}"
     );
     // And critically: the misleading success output must NOT have been printed.
@@ -470,16 +596,28 @@ fn inspect_accepts_file_with_only_ks_pack_header_zero_elisions() {
     );
 
     let bin = knapsack_bin();
-    if !bin.exists() { return; }
+    if !bin.exists() {
+        return;
+    }
     let out = std::process::Command::new(&bin)
         .args(["inspect", src.to_str().unwrap()])
         .env("KNAPSACK_STORE", dir.join("store"))
         .output()
         .expect("spawn knapsack inspect");
-    assert!(out.status.success(), "header-only packed file should be accepted; stderr:\n{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "header-only packed file should be accepted; stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("Knapsack packed view"), "header should be honored; got: {stdout}");
-    assert!(stdout.contains("elisions: 0"), "should report 0 elisions; got: {stdout}");
+    assert!(
+        stdout.contains("Knapsack packed view"),
+        "header should be honored; got: {stdout}"
+    );
+    assert!(
+        stdout.contains("elisions: 0"),
+        "should report 0 elisions; got: {stdout}"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -498,19 +636,33 @@ fn pack_refuses_when_output_path_equals_source_path() {
     let original_sha = sha256_text(&std::fs::read_to_string(&src).unwrap());
 
     let bin = knapsack_bin();
-    if !bin.exists() { return; }
+    if !bin.exists() {
+        return;
+    }
 
     // --output points at the SAME file as the source.
     let out = std::process::Command::new(&bin)
-        .args(["pack", src.to_str().unwrap(), "--output", src.to_str().unwrap(), "--force"])
+        .args([
+            "pack",
+            src.to_str().unwrap(),
+            "--output",
+            src.to_str().unwrap(),
+            "--force",
+        ])
         .env("KNAPSACK_STORE", dir.join("store"))
         .env("KNAPSACK_METRICS", dir.join("metrics.jsonl"))
         .output()
         .expect("spawn knapsack pack");
 
-    assert!(!out.status.success(), "must reject same-file --output (exit non-zero)");
+    assert!(
+        !out.status.success(),
+        "must reject same-file --output (exit non-zero)"
+    );
     let code = out.status.code().unwrap_or(-1);
-    assert_eq!(code, 4, "exit code must be 4 (distinct from --force-refuse=3 / parser=2)");
+    assert_eq!(
+        code, 4,
+        "exit code must be 4 (distinct from --force-refuse=3 / parser=2)"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         stderr.contains("SAME file") || stderr.contains("same file"),
@@ -520,8 +672,14 @@ fn pack_refuses_when_output_path_equals_source_path() {
     // Critical: the source file MUST be unchanged. Original byte-exact.
     let after_text = std::fs::read_to_string(&src).unwrap();
     let after_sha = sha256_text(&after_text);
-    assert_eq!(original_sha, after_sha, "source file must be untouched by a refused pack");
-    assert_eq!(after_text, original_text, "source content byte-identical to before");
+    assert_eq!(
+        original_sha, after_sha,
+        "source file must be untouched by a refused pack"
+    );
+    assert_eq!(
+        after_text, original_text,
+        "source content byte-identical to before"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -536,7 +694,9 @@ fn pack_with_default_sidecar_path_still_works_after_safety_guard() {
     write_file(&src, &realistic_memory_fixture());
 
     let bin = knapsack_bin();
-    if !bin.exists() { return; }
+    if !bin.exists() {
+        return;
+    }
 
     let out = std::process::Command::new(&bin)
         .args(["pack", src.to_str().unwrap(), "--force"])
@@ -545,8 +705,11 @@ fn pack_with_default_sidecar_path_still_works_after_safety_guard() {
         .output()
         .expect("spawn knapsack pack");
 
-    assert!(out.status.success(), "default-sidecar pack must succeed; stderr:\n{}",
-        String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "default-sidecar pack must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let sidecar = dir.join("CLAUDE.knapsack.md");
     assert!(sidecar.exists(), "side-car written at default path");
     // And the source is still untouched.
@@ -563,17 +726,28 @@ fn pack_with_different_output_path_works_normally() {
     let custom_out = dir.join("custom-name.md");
 
     let bin = knapsack_bin();
-    if !bin.exists() { return; }
+    if !bin.exists() {
+        return;
+    }
 
     let out = std::process::Command::new(&bin)
-        .args(["pack", src.to_str().unwrap(), "--output", custom_out.to_str().unwrap(), "--force"])
+        .args([
+            "pack",
+            src.to_str().unwrap(),
+            "--output",
+            custom_out.to_str().unwrap(),
+            "--force",
+        ])
         .env("KNAPSACK_STORE", dir.join("store"))
         .env("KNAPSACK_METRICS", dir.join("metrics.jsonl"))
         .output()
         .expect("spawn knapsack pack");
 
-    assert!(out.status.success(), "--output to a different path must succeed; stderr:\n{}",
-        String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "--output to a different path must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(custom_out.exists(), "custom output path written");
     let _ = std::fs::remove_dir_all(&dir);
 }

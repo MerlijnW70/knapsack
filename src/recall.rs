@@ -68,7 +68,11 @@ pub fn expand(
         let a = a.max(1);
         let lo = a - 1;
         let hi = b.min(ls.len());
-        ls = if lo < hi { ls[lo..hi].to_vec() } else { Vec::new() };
+        ls = if lo < hi {
+            ls[lo..hi].to_vec()
+        } else {
+            Vec::new()
+        };
     }
 
     if let Some(g) = grep {
@@ -89,7 +93,12 @@ pub fn expand(
                         }
                     }
                 }
-                ls = ls.into_iter().enumerate().filter(|(i, _)| keep[*i]).map(|(_, l)| l).collect();
+                ls = ls
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(i, _)| keep[*i])
+                    .map(|(_, l)| l)
+                    .collect();
             }
         }
     }

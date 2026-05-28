@@ -19,7 +19,10 @@ use knapsack::token_estimate::tokens;
 use std::path::PathBuf;
 
 fn tmp(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let d = std::env::temp_dir().join(format!("kn-r8-{}-{}-{}", tag, std::process::id(), t));
     std::fs::create_dir_all(&d).unwrap();
     d
@@ -34,7 +37,11 @@ fn bench_gen_file_is_deterministic() {
     // Same `edited` arg → byte-identical file. Determinism is what makes
     // the bench reproducible across runs.
     for k in 0..6 {
-        assert_eq!(bench::gen_file(k), bench::gen_file(k), "gen_file({k}) must be deterministic");
+        assert_eq!(
+            bench::gen_file(k),
+            bench::gen_file(k),
+            "gen_file({k}) must be deterministic"
+        );
     }
 }
 
@@ -82,18 +89,38 @@ fn bench_a_b_c_ordering_holds_synthetic_workload() {
         let b_log = structural::compress(log.as_bytes(), 0, log.len(), ContentType::Log).0;
         let b = tokens(&b_file) + tokens(&b_log);
 
-        let c_file = pack(file.as_bytes(), ContentType::Code, &store, &mut ledger, k as u64);
-        let c_log = pack(log.as_bytes(), ContentType::Log, &store, &mut ledger, k as u64);
+        let c_file = pack(
+            file.as_bytes(),
+            ContentType::Code,
+            &store,
+            &mut ledger,
+            k as u64,
+        );
+        let c_log = pack(
+            log.as_bytes(),
+            ContentType::Log,
+            &store,
+            &mut ledger,
+            k as u64,
+        );
         let c = c_file.shown_tokens_est + c_log.shown_tokens_est;
 
-        a_tot += a; b_tot += b; c_tot += c;
+        a_tot += a;
+        b_tot += b;
+        c_tot += c;
     }
 
     // Stateless compression must save against raw on the synthetic workload.
-    assert!(b_tot < a_tot, "B (stateless) must save vs A (raw): A={a_tot} B={b_tot}");
+    assert!(
+        b_tot < a_tot,
+        "B (stateless) must save vs A (raw): A={a_tot} B={b_tot}"
+    );
     // Conditional must be at least as good as stateless on a delta-friendly
     // workload (the bench is designed to be delta-friendly).
-    assert!(c_tot < b_tot, "C (knapsack) must beat B (stateless) on delta-friendly: B={b_tot} C={c_tot}");
+    assert!(
+        c_tot < b_tot,
+        "C (knapsack) must beat B (stateless) on delta-friendly: B={b_tot} C={c_tot}"
+    );
     // Rough sanity: total tokens are in the right order of magnitude.
     assert!(a_tot > 1000, "A total nonzero ({a_tot})");
 
@@ -125,7 +152,10 @@ fn bench_first_iteration_is_cold_for_c() {
     // C is allowed a tiny markup over B from per-block bookkeeping but
     // should be within ~30%.
     let ratio = (c as f64) / (b as f64);
-    assert!(ratio < 1.3, "cold C ({c}) should not be wildly worse than B ({b}); ratio={ratio:.2}");
+    assert!(
+        ratio < 1.3,
+        "cold C ({c}) should not be wildly worse than B ({b}); ratio={ratio:.2}"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -139,14 +169,35 @@ fn bench_second_iteration_delta_hits_substantial() {
     let mut ledger = Ledger::in_memory();
 
     // Warm up with iteration 0.
-    let _ = pack(bench::gen_file(0).as_bytes(), ContentType::Code, &store, &mut ledger, 0);
-    let _ = pack(bench::gen_log(0).as_bytes(), ContentType::Log, &store, &mut ledger, 0);
+    let _ = pack(
+        bench::gen_file(0).as_bytes(),
+        ContentType::Code,
+        &store,
+        &mut ledger,
+        0,
+    );
+    let _ = pack(
+        bench::gen_log(0).as_bytes(),
+        ContentType::Log,
+        &store,
+        &mut ledger,
+        0,
+    );
 
     // Now iteration 1 — only the first handler bumped, rest unchanged.
-    let c_file_warm = pack(bench::gen_file(1).as_bytes(), ContentType::Code, &store, &mut ledger, 1);
+    let c_file_warm = pack(
+        bench::gen_file(1).as_bytes(),
+        ContentType::Code,
+        &store,
+        &mut ledger,
+        1,
+    );
     // Substantial delta hits: most of the 40 handlers are unchanged.
-    assert!(c_file_warm.delta_hits >= 10,
-        "warm pack must score many delta hits, got {}", c_file_warm.delta_hits);
+    assert!(
+        c_file_warm.delta_hits >= 10,
+        "warm pack must score many delta hits, got {}",
+        c_file_warm.delta_hits
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -233,8 +284,10 @@ fn put_with_handle_mismatched_bytes_get_returns_none() {
 
     // verify(real_handle, fake_bytes) → false → get returns None.
     let got = store.get(&real_handle);
-    assert!(got.is_none(),
-        "put_with_handle abuse must be caught by verify-on-read; got: {got:?}");
+    assert!(
+        got.is_none(),
+        "put_with_handle abuse must be caught by verify-on-read; got: {got:?}"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -257,8 +310,11 @@ fn put_with_correct_handle_then_overwrite_with_wrong_bytes_rejects() {
     // The block file should still contain the original (put_with_handle is
     // idempotent — skips write if file exists)
     let got = store.get(&h);
-    assert_eq!(got.as_deref(), Some(&real_bytes[..]),
-        "idempotent put preserves the original content under handle conflict");
+    assert_eq!(
+        got.as_deref(),
+        Some(&real_bytes[..]),
+        "idempotent put preserves the original content under handle conflict"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -290,18 +346,26 @@ fn transcript_with_realistic_claude_code_shape() {
     assert!(scan.ok, "transcript must parse");
     assert!(scan.lines_scanned >= 8, "all 8 lines scanned");
     // /clear is at line index 6 (0-based) → boundary detected
-    assert!(scan.last_boundary.is_some(), "must detect the /clear boundary");
+    assert!(
+        scan.last_boundary.is_some(),
+        "must detect the /clear boundary"
+    );
     // Resident handles = only those AFTER /clear
-    assert!(scan.resident.contains("ks2_cccccccccccccccccccccccccccccccc"),
-        "post-/clear handle present");
+    assert!(
+        scan.resident
+            .contains("ks2_cccccccccccccccccccccccccccccccc"),
+        "post-/clear handle present"
+    );
     // Pre-/clear handles must be excluded
     for pre in [
         "ks2_1111111111111111111111111111111111111",
         "ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "ks2_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     ] {
-        assert!(!scan.resident.contains(pre),
-            "handle {pre} appeared BEFORE /clear and must be excluded");
+        assert!(
+            !scan.resident.contains(pre),
+            "handle {pre} appeared BEFORE /clear and must be excluded"
+        );
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -317,9 +381,15 @@ fn transcript_with_compaction_event_resets_resident() {
     std::fs::write(&p, content).unwrap();
     let scan = knapsack::transcript::scan(&p);
     assert!(scan.ok);
-    assert!(scan.resident.contains("ks2_dddddddddddddddddddddddddddddddd"));
-    assert!(!scan.resident.contains("ks2_1111111111111111111111111111111111111"),
-        "pre-compact handle excluded");
+    assert!(scan
+        .resident
+        .contains("ks2_dddddddddddddddddddddddddddddddd"));
+    assert!(
+        !scan
+            .resident
+            .contains("ks2_1111111111111111111111111111111111111"),
+        "pre-compact handle excluded"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -348,7 +418,11 @@ fn transcript_handles_appearing_multiple_times_dedup() {
     );
     std::fs::write(&p, &content).unwrap();
     let scan = knapsack::transcript::scan(&p);
-    assert_eq!(scan.resident.len(), 1, "handle appearing N times still dedups to 1");
+    assert_eq!(
+        scan.resident.len(),
+        1,
+        "handle appearing N times still dedups to 1"
+    );
     assert!(scan.resident.contains(h));
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -361,9 +435,17 @@ fn transcript_collects_legacy_ks_handles_too() {
 "#;
     std::fs::write(&p, content).unwrap();
     let scan = knapsack::transcript::scan(&p);
-    assert!(scan.resident.contains("ks_0123456789"), "legacy 10-hex collected");
-    assert!(scan.resident.contains("ks_0123456789abcdef"), "legacy 16-hex collected");
-    assert!(scan.resident.contains("ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+    assert!(
+        scan.resident.contains("ks_0123456789"),
+        "legacy 10-hex collected"
+    );
+    assert!(
+        scan.resident.contains("ks_0123456789abcdef"),
+        "legacy 16-hex collected"
+    );
+    assert!(scan
+        .resident
+        .contains("ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -377,8 +459,8 @@ fn rt(bytes: &[u8], ct: ContentType, tag: &str) {
     let mut ledger = Ledger::in_memory();
     let _ = pack(bytes, ct, &store, &mut ledger, 0);
     if !bytes.is_empty() {
-        let back = reconstruct(bytes, ct, &store)
-            .expect(&format!("{tag}: reconstruct must return Some"));
+        let back =
+            reconstruct(bytes, ct, &store).expect(&format!("{tag}: reconstruct must return Some"));
         assert_eq!(back, bytes, "{tag}: byte-exact recall");
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -415,8 +497,16 @@ fn one_function_no_body() {
 
 #[test]
 fn one_line_no_newline() {
-    rt(b"some content without a trailing newline", ContentType::Code, "no-newline");
-    rt(b"some content without a trailing newline", ContentType::Log, "no-newline-log");
+    rt(
+        b"some content without a trailing newline",
+        ContentType::Code,
+        "no-newline",
+    );
+    rt(
+        b"some content without a trailing newline",
+        ContentType::Log,
+        "no-newline-log",
+    );
 }
 
 #[test]
@@ -498,11 +588,17 @@ fn cross_session_attribution_chain_via_api() {
 
     // Last expand event in metrics MUST be attributed to "producer", not "consumer".
     let metrics = std::fs::read_to_string(dir.join("metrics.jsonl")).unwrap();
-    let last_expand_line = metrics.lines().filter(|l| l.contains("\"event\":\"expand\"")).last().unwrap();
+    let last_expand_line = metrics
+        .lines()
+        .filter(|l| l.contains("\"event\":\"expand\""))
+        .last()
+        .unwrap();
     assert!(last_expand_line.contains(r#""session":"producer""#),
         "refetch attributed to originating session 'producer', not caller 'consumer'; line:\n{last_expand_line}");
-    assert!(!last_expand_line.contains(r#""session":"consumer""#),
-        "refetch must NOT be attributed to the caller session");
+    assert!(
+        !last_expand_line.contains(r#""session":"consumer""#),
+        "refetch must NOT be attributed to the caller session"
+    );
 
     std::env::remove_var("KNAPSACK_STORE");
     std::env::remove_var("KNAPSACK_SESSIONS");

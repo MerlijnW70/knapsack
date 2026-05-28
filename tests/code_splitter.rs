@@ -26,12 +26,23 @@ fn assert_tiles(input: &str, blocks: &[(usize, usize)]) {
         assert!(blocks.is_empty(), "empty input -> no tiles");
         return;
     }
-    assert_eq!(blocks.first().map(|b| b.0), Some(0), "first tile starts at 0");
-    assert_eq!(blocks.last().map(|b| b.1), Some(bytes.len()), "last tile ends at len");
+    assert_eq!(
+        blocks.first().map(|b| b.0),
+        Some(0),
+        "first tile starts at 0"
+    );
+    assert_eq!(
+        blocks.last().map(|b| b.1),
+        Some(bytes.len()),
+        "last tile ends at len"
+    );
     for w in blocks.windows(2) {
         assert_eq!(w[0].1, w[1].0, "no gap/overlap");
     }
-    let rejoined: Vec<u8> = blocks.iter().flat_map(|&(s, e)| bytes[s..e].iter().copied()).collect();
+    let rejoined: Vec<u8> = blocks
+        .iter()
+        .flat_map(|&(s, e)| bytes[s..e].iter().copied())
+        .collect();
     assert_eq!(&rejoined, bytes, "byte-exact concat");
 }
 
@@ -51,7 +62,12 @@ fn process_request(input: &Request) -> Response {
 ";
     let blocks = split_blocks(src.as_bytes(), ContentType::Code);
     assert_tiles(src, &blocks);
-    assert_eq!(blocks.len(), 1, "one function -> one block; got {:?}", blocks_of(src));
+    assert_eq!(
+        blocks.len(),
+        1,
+        "one function -> one block; got {:?}",
+        blocks_of(src)
+    );
 }
 
 #[test]
@@ -71,11 +87,22 @@ fn second(x: i32) -> i32 {
 ";
     let blocks = split_blocks(src.as_bytes(), ContentType::Code);
     assert_tiles(src, &blocks);
-    assert_eq!(blocks.len(), 2, "two top-level fns -> two blocks; got {:?}", blocks_of(src));
+    assert_eq!(
+        blocks.len(),
+        2,
+        "two top-level fns -> two blocks; got {:?}",
+        blocks_of(src)
+    );
     let texts = blocks_of(src);
     assert!(texts[0].contains("fn first"), "first block holds first()");
-    assert!(texts[1].contains("fn second"), "second block holds second()");
-    assert!(texts[1].contains("a - 1"), "second's internal blank doesn't break out");
+    assert!(
+        texts[1].contains("fn second"),
+        "second block holds second()"
+    );
+    assert!(
+        texts[1].contains("a - 1"),
+        "second's internal blank doesn't break out"
+    );
 }
 
 #[test]
@@ -94,9 +121,18 @@ fn main() {
     assert_tiles(src, &blocks);
     assert_eq!(blocks.len(), 2, "preamble + main: {:?}", blocks_of(src));
     let texts = blocks_of(src);
-    assert!(texts[0].contains("use std::collections::HashMap"), "preamble holds imports");
-    assert!(!texts[0].contains("fn main"), "preamble does NOT contain main()");
-    assert!(texts[1].starts_with("fn main"), "second block starts at the boundary");
+    assert!(
+        texts[0].contains("use std::collections::HashMap"),
+        "preamble holds imports"
+    );
+    assert!(
+        !texts[0].contains("fn main"),
+        "preamble does NOT contain main()"
+    );
+    assert!(
+        texts[1].starts_with("fn main"),
+        "second block starts at the boundary"
+    );
 }
 
 #[test]
@@ -125,13 +161,24 @@ def main():
     let blocks = split_blocks(src.as_bytes(), ContentType::Code);
     assert_tiles(src, &blocks);
     // Expected: preamble · helper · Service · main = 4 blocks.
-    assert_eq!(blocks.len(), 4, "py preamble + helper + class + main = 4 blocks; got {:?}", blocks_of(src));
+    assert_eq!(
+        blocks.len(),
+        4,
+        "py preamble + helper + class + main = 4 blocks; got {:?}",
+        blocks_of(src)
+    );
     let texts = blocks_of(src);
     assert!(texts[0].contains("import sys"));
     assert!(texts[1].contains("def helper"));
     assert!(texts[2].contains("class Service"));
-    assert!(texts[2].contains("def __init__"), "class block keeps its INDENTED defs");
-    assert!(texts[2].contains("def run"), "class block keeps both indented methods");
+    assert!(
+        texts[2].contains("def __init__"),
+        "class block keeps its INDENTED defs"
+    );
+    assert!(
+        texts[2].contains("def run"),
+        "class block keeps both indented methods"
+    );
     assert!(texts[3].contains("def main"));
 }
 
@@ -159,7 +206,12 @@ async function init() {
 ";
     let blocks = split_blocks(src.as_bytes(), ContentType::Code);
     assert_tiles(src, &blocks);
-    assert_eq!(blocks.len(), 4, "preamble + handler + Service + init: {:?}", blocks_of(src));
+    assert_eq!(
+        blocks.len(),
+        4,
+        "preamble + handler + Service + init: {:?}",
+        blocks_of(src)
+    );
 }
 
 #[test]
@@ -170,7 +222,12 @@ fn minified_code_with_no_definitions_falls_back_to_blank_line_split() {
     let src = "var a=1;var b=2;var c=3;var d=a+b+c;console.log(d);";
     let blocks = split_blocks(src.as_bytes(), ContentType::Code);
     assert_tiles(src, &blocks);
-    assert_eq!(blocks.len(), 1, "no defs found -> single block fallback: {:?}", blocks_of(src));
+    assert_eq!(
+        blocks.len(),
+        1,
+        "no defs found -> single block fallback: {:?}",
+        blocks_of(src)
+    );
 }
 
 #[test]
@@ -207,7 +264,10 @@ fn one_function_edit_only_invalidates_that_block() {
     let dir = std::env::temp_dir().join(format!(
         "knapsack-codesplit-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
     ));
     let store = Store::new(dir.clone());
     let mut ledger = Ledger::in_memory();

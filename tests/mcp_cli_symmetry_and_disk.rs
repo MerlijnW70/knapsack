@@ -47,8 +47,10 @@ fn mcp_metrics_text_equals_cli_metrics_text_when_no_data() {
     let _sb = EnvSandbox::new("mcp-sym-empty");
     let cli_text = metrics::report();
     let mcp_text = rpc_metrics_text(None);
-    assert_eq!(cli_text, mcp_text,
-        "MCP and CLI must return identical text for empty metrics state");
+    assert_eq!(
+        cli_text, mcp_text,
+        "MCP and CLI must return identical text for empty metrics state"
+    );
 }
 
 #[test]
@@ -62,8 +64,10 @@ fn mcp_metrics_text_equals_cli_metrics_text_with_real_data() {
 
     let cli_text = metrics::report();
     let mcp_text = rpc_metrics_text(None);
-    assert_eq!(cli_text, mcp_text,
-        "MCP and CLI must return identical text for populated metrics state");
+    assert_eq!(
+        cli_text, mcp_text,
+        "MCP and CLI must return identical text for populated metrics state"
+    );
 }
 
 #[test]
@@ -78,7 +82,10 @@ fn mcp_metrics_text_matches_cli_per_session_filter() {
 
     // The filtered report should NOT mention the OTHER session's numbers
     let unfiltered = metrics::report();
-    assert_ne!(cli_filtered, unfiltered, "filter must actually change the output");
+    assert_ne!(
+        cli_filtered, unfiltered,
+        "filter must actually change the output"
+    );
 }
 
 #[test]
@@ -91,7 +98,10 @@ fn mcp_metrics_response_envelope_shape_is_stable() {
     assert!(resp.contains(r#""jsonrpc":"2.0""#));
     assert!(resp.contains(r#""id":42"#), "id echoed back");
     assert!(resp.contains(r#""type":"text""#));
-    assert!(resp.contains(r#""isError":false"#), "metrics is informational, not an error");
+    assert!(
+        resp.contains(r#""isError":false"#),
+        "metrics is informational, not an error"
+    );
 }
 
 #[test]
@@ -161,7 +171,11 @@ fn expand_on_handle_from_unwriteable_store_returns_none() {
     let mut sb = EnvSandbox::new("disk-fail-store");
     let fake_store_dir = sb.join("store-as-file");
     // Create as a FILE not a dir
-    std::fs::write(&fake_store_dir, b"i am a regular file pretending to be the store dir").unwrap();
+    std::fs::write(
+        &fake_store_dir,
+        b"i am a regular file pretending to be the store dir",
+    )
+    .unwrap();
     sb.set("KNAPSACK_STORE", &fake_store_dir);
 
     let r = api::pack_output(api::PackRequest {
@@ -182,7 +196,10 @@ fn expand_on_handle_from_unwriteable_store_returns_none() {
         context: 0,
         session_id: "x".into(),
     });
-    assert!(out.is_none(), "expand on broken store returns None, not crash");
+    assert!(
+        out.is_none(),
+        "expand on broken store returns None, not crash"
+    );
 }
 
 #[test]
@@ -227,8 +244,7 @@ fn metrics_concurrent_writes_dont_corrupt_summary() {
     for t in 0..10 {
         handles.push(std::thread::spawn(move || {
             for i in 0..50 {
-                metrics::record_compress(
-                    &format!("thread-{t}"), 100, 50, 50, i, 0);
+                metrics::record_compress(&format!("thread-{t}"), 100, 50, 50, i, 0);
             }
         }));
     }
@@ -237,9 +253,11 @@ fn metrics_concurrent_writes_dont_corrupt_summary() {
     }
     let s = metrics::summary();
     // 10 threads × 50 events = 500 compress events. No corruption.
-    assert_eq!(s.compress_events, 500,
+    assert_eq!(
+        s.compress_events, 500,
         "concurrent writes must not corrupt or drop lines; got {} events",
-        s.compress_events);
+        s.compress_events
+    );
     assert_eq!(s.raw, 500 * 100);
     assert_eq!(s.saved, 500 * 50);
 }

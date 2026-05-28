@@ -33,7 +33,10 @@ fn gen(rng: &mut Rng) -> Vec<u8> {
             2 => s.push_str("}\n"),
             3 => s.push_str(&format!("PASS src/test{i}.js ({} ms)\n", i * 3)),
             4 => s.push('\n'),
-            _ => s.push_str(&format!("[INFO] event {i} processed status=ok value={}\n", i * 7)),
+            _ => s.push_str(&format!(
+                "[INFO] event {i} processed status=ok value={}\n",
+                i * 7
+            )),
         }
     }
     s.into_bytes()
@@ -43,9 +46,23 @@ fn check(bytes: &[u8], ct: ContentType) {
     let (_view, elisions) = compress(bytes, 0, bytes.len(), ct);
     let mut prev_end = 0usize;
     for el in &elisions {
-        assert!(el.start <= el.end, "elision range non-inverted: ({},{})", el.start, el.end);
-        assert!(el.end <= bytes.len(), "elision in bounds: ({},{}) len {}", el.start, el.end, bytes.len());
-        assert!(el.start >= prev_end, "elisions must be ordered and non-overlapping");
+        assert!(
+            el.start <= el.end,
+            "elision range non-inverted: ({},{})",
+            el.start,
+            el.end
+        );
+        assert!(
+            el.end <= bytes.len(),
+            "elision in bounds: ({},{}) len {}",
+            el.start,
+            el.end,
+            bytes.len()
+        );
+        assert!(
+            el.start >= prev_end,
+            "elisions must be ordered and non-overlapping"
+        );
         prev_end = el.end;
         assert_eq!(
             handle(&bytes[el.start..el.end]),

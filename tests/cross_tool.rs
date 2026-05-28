@@ -11,7 +11,10 @@ use knapsack::pack_doc::pack_doc;
 use knapsack::store::Store;
 
 fn tmpstore(tag: &str) -> Store {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let dir = std::env::temp_dir().join(format!("kn-xtool-{}-{}-{}", tag, std::process::id(), t));
     Store::new(dir)
 }
@@ -30,7 +33,10 @@ fn bash_hook_skips_a_command_already_invoking_knapsack() {
         "/path/to/knapsack hook",
         "cargo test && knapsack metrics",
     ] {
-        assert!(!hook::decide(cmd).wrap, "must NOT wrap '{cmd}' (would double-wrap)");
+        assert!(
+            !hook::decide(cmd).wrap,
+            "must NOT wrap '{cmd}' (would double-wrap)"
+        );
     }
 }
 
@@ -59,13 +65,15 @@ fn packing_packed_output_doesnt_corrupt_anything() {
     let r1 = pack(original.as_bytes(), ContentType::Log, &store, &mut l1, 0);
     // The view contains a back-ref marker after the first warm pack. Cold pack
     // result is structurally compressed. Both should reconstruct.
-    let back = reconstruct(original.as_bytes(), ContentType::Log, &store).expect("first reconstruct");
+    let back =
+        reconstruct(original.as_bytes(), ContentType::Log, &store).expect("first reconstruct");
     assert_eq!(back, original.as_bytes(), "first reconstruct byte-exact");
 
     // Now pack the VIEW. It contains text + maybe a marker.
     let mut l2 = Ledger::in_memory();
     let r2 = pack(r1.view.as_bytes(), ContentType::Log, &store, &mut l2, 0);
-    let back2 = reconstruct(r1.view.as_bytes(), ContentType::Log, &store).expect("second reconstruct");
+    let back2 =
+        reconstruct(r1.view.as_bytes(), ContentType::Log, &store).expect("second reconstruct");
     assert_eq!(back2, r1.view.as_bytes(), "recursive pack still byte-exact");
 }
 
@@ -86,8 +94,14 @@ fn packing_packed_markdown_via_pack_doc_works() {
     // visible content is small).
     let r2 = pack_doc("notes.knapsack.md", r1.view.as_bytes(), &store);
     // Both views must be parseable (their handles must resolve via the store).
-    assert!(store.get(&r1.handle).is_some(), "r1 whole-file handle resolves");
-    assert!(store.get(&r2.handle).is_some(), "r2 whole-file handle resolves");
+    assert!(
+        store.get(&r1.handle).is_some(),
+        "r1 whole-file handle resolves"
+    );
+    assert!(
+        store.get(&r2.handle).is_some(),
+        "r2 whole-file handle resolves"
+    );
 }
 
 // ---------- mixed valid + lookalike markers in input ----------
@@ -106,7 +120,11 @@ fn input_containing_ks_recall_text_packs_unchanged() {
                  third line\n".repeat(20);
     pack(input.as_bytes(), ContentType::Log, &store, &mut l, 0);
     let back = reconstruct(input.as_bytes(), ContentType::Log, &store).expect("must reconstruct");
-    assert_eq!(back, input.as_bytes(), "input with marker-like text must reconstruct byte-exact");
+    assert_eq!(
+        back,
+        input.as_bytes(),
+        "input with marker-like text must reconstruct byte-exact"
+    );
 }
 
 // ---------- handle for content that no longer exists ----------

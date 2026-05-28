@@ -5,13 +5,21 @@
 
 use knapsack::hash::{handle, sha1_hex, verify};
 use knapsack::meta::{self, Meta};
-use knapsack::store::Store;
 use knapsack::sha256::sha256_hex;
+use knapsack::store::Store;
 use std::path::PathBuf;
 
 fn tmpstore(tag: &str) -> Store {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("kn-storecorrupt-{}-{}-{}", tag, std::process::id(), t));
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "kn-storecorrupt-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ));
     Store::new(dir)
 }
 
@@ -76,7 +84,11 @@ fn empty_block_file_reads_as_none_for_nonempty_handle() {
     let h = store.put(original);
     let bp = block_path(store.dir(), &h);
     std::fs::write(&bp, b"").unwrap();
-    assert_eq!(store.get(&h), None, "empty-out block must not match a nonempty handle");
+    assert_eq!(
+        store.get(&h),
+        None,
+        "empty-out block must not match a nonempty handle"
+    );
 }
 
 // ---------- meta sidecar corruption (3-layer defense) ----------
@@ -94,7 +106,11 @@ fn missing_meta_falls_back_to_hash_verify() {
     let mp = meta::meta_path(&bp);
     std::fs::remove_file(&mp).unwrap();
     // get() should still work via hash::verify
-    assert_eq!(store.get(&h).as_deref(), Some(&payload[..]), "no meta -> hash::verify still works");
+    assert_eq!(
+        store.get(&h).as_deref(),
+        Some(&payload[..]),
+        "no meta -> hash::verify still works"
+    );
 }
 
 #[test]
@@ -110,7 +126,11 @@ fn meta_with_corrupted_sha256_field_rejects_via_fallback() {
     // Meta now contradicts the actual bytes. matches() fails. Per store.rs::get
     // logic, the get returns None for THIS shard path; flat_path doesn't exist;
     // returns None overall.
-    assert_eq!(store.get(&h), None, "wrong sha256 in meta -> reject (never wrong bytes)");
+    assert_eq!(
+        store.get(&h),
+        None,
+        "wrong sha256 in meta -> reject (never wrong bytes)"
+    );
 }
 
 #[test]
@@ -138,7 +158,11 @@ fn meta_with_garbage_json_falls_back_to_hash_verify() {
     let mp = meta::meta_path(&bp);
     // Garbage JSON — meta::read returns None — store falls back to hash::verify.
     std::fs::write(&mp, b"{ this is not json").unwrap();
-    assert_eq!(store.get(&h).as_deref(), Some(&payload[..]), "garbage meta -> fall back to hash::verify");
+    assert_eq!(
+        store.get(&h).as_deref(),
+        Some(&payload[..]),
+        "garbage meta -> fall back to hash::verify"
+    );
 }
 
 #[test]
@@ -224,7 +248,10 @@ fn verify_rejects_handle_with_non_hex_chars() {
 fn verify_rejects_wrong_length_handles() {
     let bytes = b"x";
     assert!(!verify("ks2_short", bytes), "31-hex ks2_ rejected");
-    assert!(!verify("ks2_0123456789abcdef0123456789abcdef0", bytes), "33-hex ks2_ rejected");
+    assert!(
+        !verify("ks2_0123456789abcdef0123456789abcdef0", bytes),
+        "33-hex ks2_ rejected"
+    );
     assert!(!verify("ks_short", bytes), "non 10/16 ks_ rejected");
 }
 
@@ -257,7 +284,8 @@ fn both_corrupt_returns_none() {
     let new_sha = sha256_hex(&corrupted_bytes_after);
     let synthesized_meta = format!(
         r#"{{"sha256":"{}","len":{},"created":0,"accessed":0}}"#,
-        new_sha, corrupted_bytes_after.len()
+        new_sha,
+        corrupted_bytes_after.len()
     );
     std::fs::write(&mp, &synthesized_meta).unwrap();
 

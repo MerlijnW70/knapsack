@@ -21,8 +21,16 @@ fn knapsack_bin() -> PathBuf {
 }
 
 fn tmp_dir(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let d = std::env::temp_dir().join(format!("knapsack-cli-gc-{}-{}-{}", tag, std::process::id(), t));
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let d = std::env::temp_dir().join(format!(
+        "knapsack-cli-gc-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ));
     std::fs::create_dir_all(&d).unwrap();
     d
 }
@@ -69,7 +77,10 @@ fn older_than_non_numeric_is_rejected() {
     let out = run_gc(Some("abc"), "abc");
     assert!(!out.status.success(), "non-numeric input must not exit 0");
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("--older-than"), "stderr must name the flag: {stderr}");
+    assert!(
+        stderr.contains("--older-than"),
+        "stderr must name the flag: {stderr}"
+    );
 }
 
 #[test]
@@ -89,7 +100,10 @@ fn older_than_absent_uses_default_thirty_days() {
         return;
     }
     let out = run_gc(None, "default");
-    assert!(out.status.success(), "absent flag should fall through to the default");
+    assert!(
+        out.status.success(),
+        "absent flag should fall through to the default"
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     // 30 days * 86_400 s/day = 2_592_000 s — the report prints this verbatim.
     assert!(
@@ -122,7 +136,8 @@ fn run_expand(extra: &[&str], tag: &str) -> std::process::Output {
     // A handle in the valid format but not stored — the parse-vs-validate failure must
     // happen BEFORE the store lookup, so this is fine.
     let mut cmd = std::process::Command::new(&bin);
-    cmd.arg("expand").arg("ks2_0123456789abcdef0123456789abcdef");
+    cmd.arg("expand")
+        .arg("ks2_0123456789abcdef0123456789abcdef");
     for a in extra {
         cmd.arg(a);
     }
@@ -159,7 +174,10 @@ fn expand_context_negative_is_rejected() {
     let out = run_expand(&["--grep", "x", "--context", "-5"], "ctx-neg");
     assert!(!out.status.success(), "--context -5 must not exit 0");
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("--context"), "stderr must name the flag: {stderr}");
+    assert!(
+        stderr.contains("--context"),
+        "stderr must name the flag: {stderr}"
+    );
 }
 
 // ---------- expand --lines ----------
@@ -188,7 +206,10 @@ fn expand_lines_one_endpoint_only_is_rejected() {
     // "5" has no `-` separator -> parse_range -> None -> error (used to silently expand
     // the whole file as if --lines had been omitted).
     let out = run_expand(&["--lines", "5"], "lines-bare");
-    assert!(!out.status.success(), "--lines 5 (no range) must not exit 0");
+    assert!(
+        !out.status.success(),
+        "--lines 5 (no range) must not exit 0"
+    );
 }
 
 // ---------- why-last positional ----------
@@ -232,7 +253,10 @@ fn why_last_absent_uses_default() {
         return;
     }
     let out = run_why_last(None, "why-default");
-    assert!(out.status.success(), "why-last with no arg should use default 10 and exit 0");
+    assert!(
+        out.status.success(),
+        "why-last with no arg should use default 10 and exit 0"
+    );
 }
 
 #[test]

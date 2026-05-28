@@ -57,7 +57,11 @@ fn gen_json(rng: &mut Rng, depth: usize) -> Json {
         }
         _ => {
             let n = rng.below(5);
-            Json::Obj((0..n).map(|i| (format!("k{i}_{}", rng.below(100)), gen_json(rng, depth - 1))).collect())
+            Json::Obj(
+                (0..n)
+                    .map(|i| (format!("k{i}_{}", rng.below(100)), gen_json(rng, depth - 1)))
+                    .collect(),
+            )
         }
     }
 }
@@ -68,7 +72,8 @@ fn json_roundtrips_any_representable_value() {
     for _ in 0..5000 {
         let v = gen_json(&mut rng, 5);
         let s = json::to_string(&v);
-        let back = json::parse(&s).unwrap_or_else(|e| panic!("failed to re-parse our own output {s:?}: {e}"));
+        let back = json::parse(&s)
+            .unwrap_or_else(|e| panic!("failed to re-parse our own output {s:?}: {e}"));
         assert_eq!(back, v, "JSON round-trip must be lossless. serialized: {s}");
     }
 }
@@ -77,8 +82,27 @@ fn json_roundtrips_any_representable_value() {
 fn malformed_input_never_panics() {
     let mut rng = Rng(0x00FE_EDFA_CEC0_FFEE);
     let seeds = [
-        "", "{", "}", "[", "]", "\"", "\\", "{\"a\"", "{\"a\":}", "[,]", "tru", "nul",
-        "-", "1.2.3", "{\"a\":1,}", "\"\\u00\"", "\"\\uZZZZ\"", "\"\\q\"", "{1:2}", "1e", "1e999",
+        "",
+        "{",
+        "}",
+        "[",
+        "]",
+        "\"",
+        "\\",
+        "{\"a\"",
+        "{\"a\":}",
+        "[,]",
+        "tru",
+        "nul",
+        "-",
+        "1.2.3",
+        "{\"a\":1,}",
+        "\"\\u00\"",
+        "\"\\uZZZZ\"",
+        "\"\\q\"",
+        "{1:2}",
+        "1e",
+        "1e999",
     ];
     for s in seeds {
         let _ = json::parse(s); // must return Ok/Err, never panic
@@ -116,8 +140,14 @@ fn extreme_nesting_errors_instead_of_overflowing_the_stack() {
     // process) at a few thousand levels. The depth cap must turn that into a clean Err — if
     // this test ever crashes the test binary instead of failing, the cap regressed.
     let s = format!("{}{}{}", "[".repeat(5000), "1", "]".repeat(5000));
-    assert!(json::parse(&s).is_err(), "deeply nested input must error, not crash");
+    assert!(
+        json::parse(&s).is_err(),
+        "deeply nested input must error, not crash"
+    );
     // Same for objects.
     let o = format!("{}{}{}", "{\"k\":".repeat(5000), "1", "}".repeat(5000));
-    assert!(json::parse(&o).is_err(), "deeply nested object must error, not crash");
+    assert!(
+        json::parse(&o).is_err(),
+        "deeply nested object must error, not crash"
+    );
 }

@@ -35,7 +35,10 @@ fn code_to_res(c: u8) -> Residency {
 
 impl Ledger {
     pub fn in_memory() -> Self {
-        Ledger { path: None, map: HashMap::new() }
+        Ledger {
+            path: None,
+            map: HashMap::new(),
+        }
     }
 
     pub fn load(path: PathBuf) -> Self {
@@ -44,13 +47,20 @@ impl Ledger {
             for line in text.lines() {
                 let f: Vec<&str> = line.split('\t').collect();
                 if f.len() >= 4 {
-                    if let (Ok(c), Ok(s), Ok(t)) = (f[1].parse::<u8>(), f[2].parse::<u64>(), f[3].parse::<usize>()) {
+                    if let (Ok(c), Ok(s), Ok(t)) = (
+                        f[1].parse::<u8>(),
+                        f[2].parse::<u64>(),
+                        f[3].parse::<usize>(),
+                    ) {
                         map.insert(f[0].to_string(), (c, s, t));
                     }
                 }
             }
         }
-        Ledger { path: Some(path), map }
+        Ledger {
+            path: Some(path),
+            map,
+        }
     }
 
     pub fn save(&self) {
@@ -67,7 +77,10 @@ impl Ledger {
     }
 
     pub fn residency(&self, h: &Handle) -> Residency {
-        self.map.get(h).map(|&(c, _, _)| code_to_res(c)).unwrap_or(Residency::Unknown)
+        self.map
+            .get(h)
+            .map(|&(c, _, _)| code_to_res(c))
+            .unwrap_or(Residency::Unknown)
     }
 
     pub fn note(&mut self, h: &Handle, step: u64, tokens: usize) {
@@ -92,8 +105,12 @@ impl Ledger {
         if self.resident_tokens() <= budget {
             return 0;
         }
-        let mut resident: Vec<(String, u64, usize)> =
-            self.map.iter().filter(|(_, v)| v.0 == 0).map(|(k, v)| (k.clone(), v.1, v.2)).collect();
+        let mut resident: Vec<(String, u64, usize)> = self
+            .map
+            .iter()
+            .filter(|(_, v)| v.0 == 0)
+            .map(|(k, v)| (k.clone(), v.1, v.2))
+            .collect();
         resident.sort_by_key(|x| x.1); // oldest step first
         let total: usize = resident.iter().map(|x| x.2).sum();
         let mut over = total.saturating_sub(budget);

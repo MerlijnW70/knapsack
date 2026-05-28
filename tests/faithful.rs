@@ -7,17 +7,36 @@ use knapsack::{pack, reconstruct, structural, Ledger, Store};
 use std::path::PathBuf;
 
 fn tmp(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    std::env::temp_dir().join(format!("knapsack-test-{}-{}-{}", tag, std::process::id(), t))
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "knapsack-test-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ))
 }
 
 fn sample_code(crlf: bool) -> Vec<u8> {
     let nl = if crlf { "\r\n" } else { "\n" };
     let mut s = String::new();
     for i in 0..8 {
-        s.push_str(&format!("/** doc {i} */{nl}function f{i}(x) {{{nl}", i = i, nl = nl));
-        s.push_str(&format!("  const a = prepare(x);{nl}  let acc = 0;{nl}", nl = nl));
-        s.push_str(&format!("  for (const it of a) {{ acc += it.w * {i}; }}{nl}", i = i, nl = nl));
+        s.push_str(&format!(
+            "/** doc {i} */{nl}function f{i}(x) {{{nl}",
+            i = i,
+            nl = nl
+        ));
+        s.push_str(&format!(
+            "  const a = prepare(x);{nl}  let acc = 0;{nl}",
+            nl = nl
+        ));
+        s.push_str(&format!(
+            "  for (const it of a) {{ acc += it.w * {i}; }}{nl}",
+            i = i,
+            nl = nl
+        ));
         s.push_str(&format!("  return finalize(acc);{nl}}}{nl}{nl}", nl = nl));
     }
     s.into_bytes()
@@ -50,11 +69,18 @@ fn every_elision_handle_is_byte_exact() {
     let store = Store::new(tmp("elision"));
     let input = sample_code(true); // CRLF: a normalizing path would corrupt this
     let (_view, elisions) = structural::compress(&input, 0, input.len(), ContentType::Code);
-    assert!(!elisions.is_empty(), "the sample should produce body elisions");
+    assert!(
+        !elisions.is_empty(),
+        "the sample should produce body elisions"
+    );
     for el in elisions {
         store.put_with_handle(&el.handle, &input[el.start..el.end]);
         let got = store.get(&el.handle).unwrap();
-        assert_eq!(got, &input[el.start..el.end], "elision must store exact bytes");
+        assert_eq!(
+            got,
+            &input[el.start..el.end],
+            "elision must store exact bytes"
+        );
     }
 }
 
@@ -64,7 +90,10 @@ fn session_steps_all_recover() {
     let mut ledger = Ledger::in_memory();
     let steps: Vec<(Vec<u8>, ContentType)> = vec![
         (sample_code(false), ContentType::Code),
-        (b"> test\n\nPASS a\nPASS b\nFAIL c\nTests: 2 passed".to_vec(), ContentType::Log),
+        (
+            b"> test\n\nPASS a\nPASS b\nFAIL c\nTests: 2 passed".to_vec(),
+            ContentType::Log,
+        ),
         (sample_code(false), ContentType::Code), // re-read (all referenced)
     ];
     for (i, (bytes, ct)) in steps.iter().enumerate() {

@@ -18,21 +18,30 @@ fn base() -> PathBuf {
 }
 
 pub fn store_dir() -> PathBuf {
-    env::var_os("KNAPSACK_STORE").map(PathBuf::from).unwrap_or_else(|| base().join("store"))
+    env::var_os("KNAPSACK_STORE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| base().join("store"))
 }
 
 pub fn metrics_path() -> PathBuf {
-    env::var_os("KNAPSACK_METRICS").map(PathBuf::from).unwrap_or_else(|| base().join("metrics.jsonl"))
+    env::var_os("KNAPSACK_METRICS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| base().join("metrics.jsonl"))
 }
 
 /// Conservative resident-token budget. When a session's resident set exceeds this, the
 /// oldest spans are evicted so back-references never point past the context window.
 pub fn resident_budget() -> usize {
-    env::var("KNAPSACK_RESIDENT_BUDGET").ok().and_then(|s| s.parse().ok()).unwrap_or(120_000)
+    env::var("KNAPSACK_RESIDENT_BUDGET")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(120_000)
 }
 
 pub fn sessions_dir() -> PathBuf {
-    env::var_os("KNAPSACK_SESSIONS").map(PathBuf::from).unwrap_or_else(|| base().join("sessions"))
+    env::var_os("KNAPSACK_SESSIONS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| base().join("sessions"))
 }
 
 /// Maximum length of the SANITIZED session basename before we truncate and
@@ -57,7 +66,13 @@ pub fn session_path(id: &str) -> PathBuf {
 
     let mut safe: String = effective
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
 
     if safe.len() > MAX_SESSION_BASENAME {
@@ -80,13 +95,17 @@ pub fn session_path(id: &str) -> PathBuf {
 /// live here. Read-hook is on by default; set `KNAPSACK_READ_HOOK=0` to disable.
 /// Env-overridable for tests (KNAPSACK_READ_CACHE).
 pub fn read_cache_dir() -> PathBuf {
-    env::var_os("KNAPSACK_READ_CACHE").map(PathBuf::from).unwrap_or_else(|| base().join("read_cache"))
+    env::var_os("KNAPSACK_READ_CACHE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| base().join("read_cache"))
 }
 
 /// Structured decision log for the Read hook. One JSONL line per Read PreToolUse
 /// invocation: what we decided and why. Append-only; bounded only by `knapsack gc`.
 pub fn read_log_path() -> PathBuf {
-    env::var_os("KNAPSACK_READ_LOG").map(PathBuf::from).unwrap_or_else(|| base().join("read_hook.jsonl"))
+    env::var_os("KNAPSACK_READ_LOG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| base().join("read_hook.jsonl"))
 }
 
 /// True iff the Read hook is enabled for this process. Single source of truth so the
@@ -129,7 +148,12 @@ mod tests {
         // without -a wouldn't even show it; on Windows it polluted the sessions
         // dir with an unintuitive name. We now route through the "default" tag.
         let p = session_path("");
-        assert_eq!(basename(&p), "default.tsv", "empty id must map to default.tsv, got {}", p.display());
+        assert_eq!(
+            basename(&p),
+            "default.tsv",
+            "empty id must map to default.tsv, got {}",
+            p.display()
+        );
     }
 
     #[test]
@@ -138,8 +162,11 @@ mod tests {
         for ws in [" ", "  ", "\t", "\n", " \t \n "] {
             let p = session_path(ws);
             assert_eq!(
-                basename(&p), "default.tsv",
-                "whitespace-only id {:?} must map to default.tsv, got {}", ws, p.display()
+                basename(&p),
+                "default.tsv",
+                "whitespace-only id {:?} must map to default.tsv, got {}",
+                ws,
+                p.display()
             );
         }
     }
@@ -161,17 +188,24 @@ mod tests {
         let p = session_path(&long);
         let name = basename(&p);
         // Filename = MAX_SESSION_BASENAME chars + ".tsv" = 132 chars
-        assert_eq!(name.len(), MAX_SESSION_BASENAME + 4, "long id filename should be capped, got {} chars", name.len());
+        assert_eq!(
+            name.len(),
+            MAX_SESSION_BASENAME + 4,
+            "long id filename should be capped, got {} chars",
+            name.len()
+        );
         // Should END in "_<16 hex>.tsv"
         assert!(
             name[name.len() - 21..name.len() - 4].starts_with('_'),
-            "tail must be '_<hex>.tsv': {}", name
+            "tail must be '_<hex>.tsv': {}",
+            name
         );
         // The hash tail must be 16 hex chars
         let hex_tail = &name[name.len() - 20..name.len() - 4];
         assert!(
             hex_tail.chars().all(|c| c.is_ascii_hexdigit()),
-            "tail must be hex: {}", hex_tail
+            "tail must be hex: {}",
+            hex_tail
         );
     }
 
@@ -184,7 +218,8 @@ mod tests {
         let id_a = format!("{}{}", "a".repeat(200), "x".repeat(300));
         let id_b = format!("{}{}", "a".repeat(200), "y".repeat(300));
         assert_ne!(
-            session_path(&id_a), session_path(&id_b),
+            session_path(&id_a),
+            session_path(&id_b),
             "two long IDs with identical 200-char prefix must hash-disambiguate"
         );
     }
@@ -202,7 +237,9 @@ mod tests {
 
     fn env_lock() -> MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner())
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     struct Guard {
@@ -237,7 +274,9 @@ mod tests {
 
     #[test]
     fn off_when_explicit_off_switch() {
-        for v in ["0", "off", "false", "no", "OFF", "False", "No", " 0 ", "\toff\t"] {
+        for v in [
+            "0", "off", "false", "no", "OFF", "False", "No", " 0 ", "\toff\t",
+        ] {
             let _g = Guard::with(Some(v));
             assert!(!read_hook_enabled(), "value {:?} should disable", v);
         }
@@ -249,7 +288,10 @@ mod tests {
         // shell on Windows turns this into "unset" so the dogfood matrix can't test
         // it directly — this Rust test does.
         let _g = Guard::with(Some(""));
-        assert!(!read_hook_enabled(), "empty string -> OFF (treated as cleared)");
+        assert!(
+            !read_hook_enabled(),
+            "empty string -> OFF (treated as cleared)"
+        );
     }
 
     #[test]

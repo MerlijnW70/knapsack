@@ -10,7 +10,9 @@
 mod common;
 use common::EnvSandbox;
 
-use knapsack::api::{evict, expand_handle, pack_output, record_residency, ExpandRequest, PackRequest};
+use knapsack::api::{
+    evict, expand_handle, pack_output, record_residency, ExpandRequest, PackRequest,
+};
 use knapsack::content_type::ContentType;
 use knapsack::recall::RecallOut;
 use std::path::PathBuf;
@@ -86,7 +88,10 @@ fn pack_output_same_session_twice_hits_delta() {
 
     assert_eq!(r1.delta_hits, 0, "cold pack");
     assert!(r2.delta_hits > 0, "warm pack must record delta hits");
-    assert!(r2.shown_tokens_est <= r1.shown_tokens_est, "warm view shouldn't grow");
+    assert!(
+        r2.shown_tokens_est <= r1.shown_tokens_est,
+        "warm view shouldn't grow"
+    );
 }
 
 #[test]
@@ -112,7 +117,10 @@ fn pack_output_different_sessions_isolate() {
         transcript_path: None,
     });
     assert_eq!(r1.delta_hits, 0);
-    assert_eq!(r2.delta_hits, 0, "session-b is cold even though bytes match session-a");
+    assert_eq!(
+        r2.delta_hits, 0,
+        "session-b is cold even though bytes match session-a"
+    );
 }
 
 #[test]
@@ -259,7 +267,10 @@ fn expand_handle_records_refetch_metric() {
 
     // metrics.jsonl should now contain an expand event.
     let metrics = std::fs::read_to_string(sb.join("metrics.jsonl")).unwrap();
-    assert!(metrics.contains(r#""event":"expand""#), "expand event recorded");
+    assert!(
+        metrics.contains(r#""event":"expand""#),
+        "expand event recorded"
+    );
 }
 
 // ---------- record_residency / evict programmatic ledger ----------
@@ -273,11 +284,17 @@ fn record_residency_then_evict_round_trip() {
     record_residency(session, &handle.to_string(), 1);
     // Load the ledger from disk and confirm the handle is Resident
     let ledger = knapsack::Ledger::load(knapsack::config::session_path(session));
-    assert_eq!(ledger.residency(&handle.to_string()), knapsack::Residency::Resident);
+    assert_eq!(
+        ledger.residency(&handle.to_string()),
+        knapsack::Residency::Resident
+    );
 
     evict(session, &handle.to_string());
     let ledger2 = knapsack::Ledger::load(knapsack::config::session_path(session));
-    assert_eq!(ledger2.residency(&handle.to_string()), knapsack::Residency::Evicted);
+    assert_eq!(
+        ledger2.residency(&handle.to_string()),
+        knapsack::Residency::Evicted
+    );
 }
 
 #[test]
@@ -302,5 +319,8 @@ fn evict_on_unknown_session_silently_creates_then_no_ops() {
     // The file should exist (save wrote it) but contain no entries.
     assert!(p.exists());
     let content = std::fs::read_to_string(&p).unwrap();
-    assert!(content.is_empty(), "ledger from empty in-memory state is empty file");
+    assert!(
+        content.is_empty(),
+        "ledger from empty in-memory state is empty file"
+    );
 }

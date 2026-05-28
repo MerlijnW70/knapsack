@@ -29,8 +29,16 @@ struct Totals {
 }
 
 fn store_dir(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    std::env::temp_dir().join(format!("knapsack-tokred-{}-{}-{}", tag, std::process::id(), t))
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "knapsack-tokred-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ))
 }
 
 /// Run a session through all three engines, sharing one ledger for Knapsack.
@@ -104,9 +112,16 @@ impl Rng {
 fn test_log(passed: usize, total: usize) -> Vec<u8> {
     let mut s = String::from("> app@1.0.0 test\n> jest --runInBand\n\n");
     for i in 0..total {
-        s.push_str(&format!("{} src/mod{i}.test.js ({} ms)\n", if i < passed { "PASS" } else { "FAIL" }, 8 + (i * 7) % 60));
+        s.push_str(&format!(
+            "{} src/mod{i}.test.js ({} ms)\n",
+            if i < passed { "PASS" } else { "FAIL" },
+            8 + (i * 7) % 60
+        ));
     }
-    s.push_str(&format!("\nTests: {passed} passed, {} failed, {total} total\nTime: 3.{passed} s\n", total - passed));
+    s.push_str(&format!(
+        "\nTests: {passed} passed, {} failed, {total} total\nTime: 3.{passed} s\n",
+        total - passed
+    ));
     s.into_bytes()
 }
 
@@ -115,13 +130,17 @@ fn source_module() -> Vec<u8> {
     let mut s = String::from("// handlers.rs — request pipeline\n\n");
     for i in 0..30 {
         s.push_str(&format!("/// Handler {i}: validate, run, finalize.\n"));
-        s.push_str(&format!("pub fn handler_{i}(input: &Input, opts: &Opts) -> Result<Out, Err> {{\n"));
+        s.push_str(&format!(
+            "pub fn handler_{i}(input: &Input, opts: &Opts) -> Result<Out, Err> {{\n"
+        ));
         s.push_str("    let ctx = prepare(input, opts)?;\n");
         s.push_str("    let mut acc = 0u64;\n");
         s.push_str("    for it in ctx.items.iter().filter(|x| !x.disabled) {\n");
         s.push_str("        acc += it.weight.unwrap_or(1) * it.factor.unwrap_or(1);\n");
         s.push_str("    }\n");
-        s.push_str(&format!("    finalize(normalize(acc, ctx.len()), ctx, {i})\n"));
+        s.push_str(&format!(
+            "    finalize(normalize(acc, ctx.len()), ctx, {i})\n"
+        ));
         s.push_str("}\n\n");
     }
     s.into_bytes()
@@ -192,13 +211,21 @@ fn guard_holds_and_reconstruct_stays_byte_exact_on_diffuse_change() {
     for turn in 0..8usize {
         let mut s = String::new();
         for i in 0..200 {
-            let v = if i % 10 == turn % 10 { turn * 1000 + i } else { i };
+            let v = if i % 10 == turn % 10 {
+                turn * 1000 + i
+            } else {
+                i
+            };
             s.push_str(&format!("setting_{i} = {v}\n"));
         }
         let bytes = s.into_bytes();
         let r = pack(&bytes, ContentType::Log, &store, &mut ledger, turn as u64);
         let stateless = tokens(&structural::compress(&bytes, 0, bytes.len(), ContentType::Log).0);
-        assert!(r.shown_tokens_est <= stateless, "turn {turn}: guard broken (pack {} > stateless {stateless})", r.shown_tokens_est);
+        assert!(
+            r.shown_tokens_est <= stateless,
+            "turn {turn}: guard broken (pack {} > stateless {stateless})",
+            r.shown_tokens_est
+        );
         assert_eq!(
             reconstruct(&bytes, ContentType::Log, &store).as_deref(),
             Some(bytes.as_slice()),
@@ -214,13 +241,20 @@ fn measure_token_reduction_across_workloads() {
     println!("(RK% / KS% = reduction vs OFF; KS<RK% = Knapsack's extra saving over Rucksack)\n");
 
     // ---------- FAVORABLE: the agentic loops Knapsack targets ----------
-    let edit_loop: Vec<Turn> = (0..10).map(|k| (test_log(k.min(60), 60), ContentType::Log)).collect();
-    let stable_reread: Vec<Turn> = (0..6).map(|_| (source_module(), ContentType::Code)).collect();
+    let edit_loop: Vec<Turn> = (0..10)
+        .map(|k| (test_log(k.min(60), 60), ContentType::Log))
+        .collect();
+    let stable_reread: Vec<Turn> = (0..6)
+        .map(|_| (source_module(), ContentType::Code))
+        .collect();
     let growing_log: Vec<Turn> = (0..8)
         .map(|turn| {
             let mut s = String::new();
             for i in 0..(50 + turn * 25) {
-                s.push_str(&format!("[INFO] 2026-05-25 event {i} processed id={} status=ok\n", i * 3));
+                s.push_str(&format!(
+                    "[INFO] 2026-05-25 event {i} processed id={} status=ok\n",
+                    i * 3
+                ));
             }
             (s.into_bytes(), ContentType::Log)
         })
@@ -229,7 +263,11 @@ fn measure_token_reduction_across_workloads() {
         .map(|turn| {
             let mut s = String::new();
             for i in 0..200 {
-                let v = if i % 10 == turn % 10 { turn * 1000 + i } else { i };
+                let v = if i % 10 == turn % 10 {
+                    turn * 1000 + i
+                } else {
+                    i
+                };
                 s.push_str(&format!("setting_{i} = {v}\n"));
             }
             (s.into_bytes(), ContentType::Log)
@@ -245,7 +283,9 @@ fn measure_token_reduction_across_workloads() {
     report("edit->test loop x10", &m_edit);
     report("stable file reread x6", &m_stable);
 
-    println!("\nDELTA WEAK (diffuse change / already-elidable — the guard ties Rucksack, never worse):");
+    println!(
+        "\nDELTA WEAK (diffuse change / already-elidable — the guard ties Rucksack, never worse):"
+    );
     report("growing log x8", &m_grow);
     report("rotating config x8", &m_rot);
 
@@ -268,7 +308,12 @@ fn measure_token_reduction_across_workloads() {
         .map(|_| {
             let mut s = String::new();
             for _ in 0..100 {
-                s.push_str(&format!("{:016x} req lat={}ms user={}\n", rng.next(), rng.next() % 900, rng.next() % 99999));
+                s.push_str(&format!(
+                    "{:016x} req lat={}ms user={}\n",
+                    rng.next(),
+                    rng.next() % 900,
+                    rng.next() % 99999
+                ));
             }
             (s.into_bytes(), ContentType::Log)
         })
@@ -289,7 +334,9 @@ fn measure_token_reduction_across_workloads() {
     report("fully-changing x6", &m_churn);
     report("incompressible x4", &m_rand);
 
-    println!("\nOVER-EXPANSION anti-pattern (read compact view, then pull WHOLE region back each turn):");
+    println!(
+        "\nOVER-EXPANSION anti-pattern (read compact view, then pull WHOLE region back each turn):"
+    );
     println!(
         "  stable reread: compact-view KS {} tok  vs  if-fully-expanded {} tok  vs  OFF {} tok",
         m_stable.knapsack, m_stable.knapsack_if_fully_expanded, m_stable.off
@@ -298,38 +345,85 @@ fn measure_token_reduction_across_workloads() {
     // ---------- HONEST INVARIANTS (so the numbers can't be gamed) ----------
 
     // On its target (localized change / stability) the delta layer wins big and beats stateless.
-    assert!(pct(m_edit.knapsack, m_edit.off) >= 70, "edit loop should cut >=70% vs OFF, got {}%", pct(m_edit.knapsack, m_edit.off));
-    assert!(m_edit.knapsack < m_edit.rucksack, "edit loop: conditional must beat stateless");
-    assert!(pct(m_stable.knapsack, m_stable.off) >= 85, "stable reread should cut >=85% vs OFF");
-    assert!(m_stable.knapsack < m_stable.rucksack, "stable reread: conditional must beat stateless");
-    assert!(pct(agg.knapsack, agg.off) >= 75, "delta-friendly aggregate should cut >=75% vs OFF, got {}%", pct(agg.knapsack, agg.off));
-    assert!(agg.knapsack < agg.rucksack, "delta-friendly aggregate: conditional must beat stateless");
+    assert!(
+        pct(m_edit.knapsack, m_edit.off) >= 70,
+        "edit loop should cut >=70% vs OFF, got {}%",
+        pct(m_edit.knapsack, m_edit.off)
+    );
+    assert!(
+        m_edit.knapsack < m_edit.rucksack,
+        "edit loop: conditional must beat stateless"
+    );
+    assert!(
+        pct(m_stable.knapsack, m_stable.off) >= 85,
+        "stable reread should cut >=85% vs OFF"
+    );
+    assert!(
+        m_stable.knapsack < m_stable.rucksack,
+        "stable reread: conditional must beat stateless"
+    );
+    assert!(
+        pct(agg.knapsack, agg.off) >= 75,
+        "delta-friendly aggregate should cut >=75% vs OFF, got {}%",
+        pct(agg.knapsack, agg.off)
+    );
+    assert!(
+        agg.knapsack < agg.rucksack,
+        "delta-friendly aggregate: conditional must beat stateless"
+    );
 
     // DELTA WEAK: diffuse change can't be back-referenced block-by-block, but the
     // never-worse-than-stateless guard means Knapsack falls back to the whole-buffer
     // structural view, so it TIES Rucksack instead of losing. Still a real win vs OFF.
-    assert!(pct(m_grow.knapsack, m_grow.off) >= 50, "growing log should still cut >=50% vs OFF");
+    assert!(
+        pct(m_grow.knapsack, m_grow.off) >= 50,
+        "growing log should still cut >=50% vs OFF"
+    );
 
     // No delta to exploit: conditional must add ZERO overhead over stateless (no spurious
     // markers when nothing is resident). These are exactly equal in practice.
-    assert_eq!(m_cold.knapsack, m_cold.rucksack, "cold read: KS must equal RK (no delta, no overhead)");
-    assert_eq!(m_churn.knapsack, m_churn.rucksack, "fully-changing: KS must equal RK");
-    assert_eq!(m_rand.knapsack, m_rand.rucksack, "incompressible: KS must equal RK");
+    assert_eq!(
+        m_cold.knapsack, m_cold.rucksack,
+        "cold read: KS must equal RK (no delta, no overhead)"
+    );
+    assert_eq!(
+        m_churn.knapsack, m_churn.rucksack,
+        "fully-changing: KS must equal RK"
+    );
+    assert_eq!(
+        m_rand.knapsack, m_rand.rucksack,
+        "incompressible: KS must equal RK"
+    );
 
     // THE GUARANTEE: across EVERY workload, Knapsack is never worse than stateless Rucksack.
     // (the min(conditional, stateless) guard in pack()). This is the invariant that turns the
     // old diffuse-change loss into a tie.
     for (name, m) in [
-        ("edit", &m_edit), ("stable", &m_stable), ("grow", &m_grow), ("rotating", &m_rot),
-        ("cold", &m_cold), ("churn", &m_churn), ("random", &m_rand),
+        ("edit", &m_edit),
+        ("stable", &m_stable),
+        ("grow", &m_grow),
+        ("rotating", &m_rot),
+        ("cold", &m_cold),
+        ("churn", &m_churn),
+        ("random", &m_rand),
     ] {
-        assert!(m.knapsack <= m.rucksack, "{name}: Knapsack must never be worse than stateless Rucksack (KS {} > RK {})", m.knapsack, m.rucksack);
+        assert!(
+            m.knapsack <= m.rucksack,
+            "{name}: Knapsack must never be worse than stateless Rucksack (KS {} > RK {})",
+            m.knapsack,
+            m.rucksack
+        );
     }
 
     // Over-expansion is strictly worse than not compressing — proving the scoreboard never
     // flatters and 'compact view first' is the rule, not optional.
-    assert!(m_stable.knapsack_if_fully_expanded > m_stable.off, "reflexive full expansion must cost MORE than OFF");
+    assert!(
+        m_stable.knapsack_if_fully_expanded > m_stable.off,
+        "reflexive full expansion must cost MORE than OFF"
+    );
 
-    println!("\nInvariants hold: delta-friendly wins are real & beat stateless; Knapsack is NEVER worse");
+    println!(
+        "\nInvariants hold: delta-friendly wins are real & beat stateless; Knapsack is NEVER worse"
+    );
     println!("than stateless on any workload (guard); no-delta cases add zero overhead; over-recall is a net loss.\n");
 }

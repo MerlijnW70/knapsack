@@ -48,7 +48,10 @@ impl ReadOnlyDir {
         std::fs::create_dir_all(&p).unwrap();
         let original_mode = std::fs::metadata(&p).unwrap().permissions().mode();
         std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o555)).unwrap();
-        Self { path: p, original_mode }
+        Self {
+            path: p,
+            original_mode,
+        }
     }
 }
 
@@ -71,7 +74,10 @@ fn chmod_555_store_dir_put_silently_fails_get_returns_none() {
 
     let payload = b"bytes that can't be written\n".repeat(20);
     let h = store.put(&payload);
-    assert!(h.starts_with("ks2_"), "handle still computed even on write failure");
+    assert!(
+        h.starts_with("ks2_"),
+        "handle still computed even on write failure"
+    );
 
     // Read-only dir means no shard subdir can be created. get() must return None.
     assert_eq!(
@@ -120,7 +126,10 @@ fn chmod_555_metrics_path_swallows_and_summary_returns_zero() {
         knapsack::metrics::record_compress("x", 100, 50, 50, 0, 0);
     }
     let s = knapsack::metrics::summary();
-    assert_eq!(s.compress_events, 0, "EACCES writes swallowed; nothing landed");
+    assert_eq!(
+        s.compress_events, 0,
+        "EACCES writes swallowed; nothing landed"
+    );
 }
 
 #[test]
@@ -153,7 +162,10 @@ fn pack_output_on_chmod_555_store_emits_view_recall_returns_none() {
         context: 0,
         session_id: "ro-pack".into(),
     });
-    assert!(out.is_none(), "no false-positive recall under POSIX read-only FS");
+    assert!(
+        out.is_none(),
+        "no false-positive recall under POSIX read-only FS"
+    );
 }
 
 // =====================================================================
@@ -267,8 +279,10 @@ fn real_sigint_then_clean_pack_in_same_session_works() {
     }
     drop(clean.stdin.take());
     let status = clean.wait().expect("clean wait");
-    assert!(status.success(),
-        "post-SIGINT clean pack must exit 0; got {status:?}");
+    assert!(
+        status.success(),
+        "post-SIGINT clean pack must exit 0; got {status:?}"
+    );
 }
 
 #[test]
@@ -290,5 +304,9 @@ fn real_sigint_metrics_remain_parseable() {
 
     // Post-SIGINT, summary() must return without panic.
     let s = knapsack::metrics::summary();
-    assert!(s.compress_events <= 100, "summary callable: events={}", s.compress_events);
+    assert!(
+        s.compress_events <= 100,
+        "summary callable: events={}",
+        s.compress_events
+    );
 }

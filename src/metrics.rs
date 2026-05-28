@@ -13,7 +13,10 @@ use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as f64).unwrap_or(0.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0)
 }
 
 fn append(j: &Json) {
@@ -32,7 +35,14 @@ fn append(j: &Json) {
     }
 }
 
-pub fn record_compress(session: &str, raw: usize, shown: usize, saved: isize, delta_hits: usize, evicted: usize) {
+pub fn record_compress(
+    session: &str,
+    raw: usize,
+    shown: usize,
+    saved: isize,
+    delta_hits: usize,
+    evicted: usize,
+) {
     append(&Json::Obj(vec![
         ("t".into(), Json::Num(now_ms())),
         ("event".into(), Json::Str("compress".into())),

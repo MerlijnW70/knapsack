@@ -12,8 +12,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 fn tmpdir(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let d = std::env::temp_dir().join(format!("knapsack-status-{}-{}-{}", tag, std::process::id(), t));
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let d = std::env::temp_dir().join(format!(
+        "knapsack-status-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ));
     std::fs::create_dir_all(&d).unwrap();
     d
 }
@@ -22,7 +30,10 @@ fn write_file(p: &Path, contents: &str) {
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent).unwrap();
     }
-    std::fs::File::create(p).unwrap().write_all(contents.as_bytes()).unwrap();
+    std::fs::File::create(p)
+        .unwrap()
+        .write_all(contents.as_bytes())
+        .unwrap();
 }
 
 fn paths(dir: &Path) -> Paths {
@@ -42,7 +53,10 @@ fn settings_with_hook(bin: &str) -> String {
 }
 
 fn mcp_with_server(bin: &str) -> String {
-    format!(r#"{{"mcpServers":{{"knapsack":{{"command":"{}","args":["mcp"]}}}}}}"#, bin)
+    format!(
+        r#"{{"mcpServers":{{"knapsack":{{"command":"{}","args":["mcp"]}}}}}}"#,
+        bin
+    )
 }
 
 // `render` calls `config::read_hook_enabled()` which reads the process env. Any test
@@ -51,7 +65,9 @@ fn mcp_with_server(bin: &str) -> String {
 // hazard as tests/read_hook.rs. Zero-dep policy forbids serial_test, so we DIY.
 fn env_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner())
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 struct EnvGuard {
@@ -88,12 +104,28 @@ fn inactive_when_hook_missing_and_explains_how_to_enable() {
     let s = collect_from(&p);
     let out = render(&s);
 
-    assert!(out.contains("Knapsack inactive"), "must lead with inactive header:\n{}", out);
-    assert!(out.contains("knapsack install"), "must tell user how to fix it:\n{}", out);
+    assert!(
+        out.contains("Knapsack inactive"),
+        "must lead with inactive header:\n{}",
+        out
+    );
+    assert!(
+        out.contains("knapsack install"),
+        "must tell user how to fix it:\n{}",
+        out
+    );
     // Inactive output is intentionally minimal — no Input/Output reduction lines,
     // no Modes block, no actions laundry list. Just the one-liner fix.
-    assert!(!out.contains("Input reduction"), "inactive should not advertise inputs as anything:\n{}", out);
-    assert!(!out.contains("Output reduction"), "inactive should not advertise outputs as anything:\n{}", out);
+    assert!(
+        !out.contains("Input reduction"),
+        "inactive should not advertise inputs as anything:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Output reduction"),
+        "inactive should not advertise outputs as anything:\n{}",
+        out
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -112,21 +144,69 @@ fn no_activity_says_ready_with_no_savings_yet() {
     let s = collect_from(&p);
     let out = render(&s);
 
-    assert!(out.starts_with("Knapsack is ready\n"), "header reflects on-disk wiring + no activity:\n{}", out);
-    assert!(out.contains("No savings yet."), "explicit 'No savings yet.' line on idle state:\n{}", out);
-    assert!(out.contains("Input reduction:    active"), "input line on, given default read-hook gate:\n{}", out);
-    assert!(out.contains("Output reduction:   active"), "output line on, given hook+MCP wired:\n{}", out);
-    assert!(out.contains("Recall:             idle"), "no activity -> recall is idle, not 'healthy':\n{}", out);
-    assert!(!out.contains("Tip:"), "idle state -> no tip; no behavior to advise on:\n{}", out);
+    assert!(
+        out.starts_with("Knapsack is ready\n"),
+        "header reflects on-disk wiring + no activity:\n{}",
+        out
+    );
+    assert!(
+        out.contains("No savings yet."),
+        "explicit 'No savings yet.' line on idle state:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Input reduction:    active"),
+        "input line on, given default read-hook gate:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Output reduction:   active"),
+        "output line on, given hook+MCP wired:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Recall:             idle"),
+        "no activity -> recall is idle, not 'healthy':\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Tip:"),
+        "idle state -> no tip; no behavior to advise on:\n{}",
+        out
+    );
     // Verbose-only detail must NOT appear on default surface.
-    assert!(!out.contains("Store:"), "default surface omits Store line:\n{}", out);
-    assert!(!out.contains("Lifetime:"), "default surface omits Lifetime footer:\n{}", out);
+    assert!(
+        !out.contains("Store:"),
+        "default surface omits Store line:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Lifetime:"),
+        "default surface omits Lifetime footer:\n{}",
+        out
+    );
     // None of the cruft from the old surface should appear here.
-    assert!(!out.contains("EXPERIMENTAL"), "no EXPERIMENTAL label:\n{}", out);
+    assert!(
+        !out.contains("EXPERIMENTAL"),
+        "no EXPERIMENTAL label:\n{}",
+        out
+    );
     assert!(!out.contains("dogfood"), "no dogfood mention:\n{}", out);
-    assert!(!out.contains("KNAPSACK_READ_HOOK"), "no env-var hint:\n{}", out);
-    assert!(!out.contains("/knapsack pack"), "no actions block:\n{}", out);
-    assert!(!out.contains("/knapsack doctor"), "no actions block:\n{}", out);
+    assert!(
+        !out.contains("KNAPSACK_READ_HOOK"),
+        "no env-var hint:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("/knapsack pack"),
+        "no actions block:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("/knapsack doctor"),
+        "no actions block:\n{}",
+        out
+    );
     assert!(!out.contains("Modes"), "no Modes block:\n{}", out);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -144,9 +224,21 @@ fn input_reduction_reads_off_when_explicit_offswitch_set() {
 
     // Hook wired but the off-switch is set AND no activity -> header is "ready",
     // not a flavor of "active". The Input line should still report the gate state.
-    assert!(out.contains("Knapsack is ready"), "no activity -> ready header even with input off:\n{}", out);
-    assert!(out.contains("Input reduction:    off"), "explicit `KNAPSACK_READ_HOOK=0` -> input reads off:\n{}", out);
-    assert!(out.contains("Output reduction:   active"), "output is unaffected by the input off-switch:\n{}", out);
+    assert!(
+        out.contains("Knapsack is ready"),
+        "no activity -> ready header even with input off:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Input reduction:    off"),
+        "explicit `KNAPSACK_READ_HOOK=0` -> input reads off:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Output reduction:   active"),
+        "output is unaffected by the input off-switch:\n{}",
+        out
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -163,8 +255,16 @@ fn output_reduction_reads_off_when_mcp_missing() {
 
     // Hook installed but no activity -> the header is "ready". The Output line still
     // truthfully reports MCP as off so the user can wire it.
-    assert!(out.contains("Knapsack is ready"), "hook installed, no activity -> ready:\n{}", out);
-    assert!(out.contains("Output reduction:   off"), "MCP missing -> output reads off:\n{}", out);
+    assert!(
+        out.contains("Knapsack is ready"),
+        "hook installed, no activity -> ready:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Output reduction:   off"),
+        "MCP missing -> output reads off:\n{}",
+        out
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -199,22 +299,70 @@ fn healthy_session_shows_saved_and_reduction_percent() {
     // compress benefit, "Reduction" is the rolled-up percent (net/raw = (8000-600)/10000 = 74%).
     // Refetched is hidden on the default surface for net-positive sessions — the
     // percentage already accounts for it, so a separate line would just be noise.
-    assert!(out.starts_with("Knapsack is saving context\n"), "net-positive -> 'saving context' header:\n{}", out);
-    assert!(out.contains("Saved this session: 8,000 tokens"), "shows gross saved (not net):\n{}", out);
-    assert!(out.contains("Reduction:          74%"), "shows net/raw as integer percent:\n{}", out);
-    assert!(!out.contains("Refetched:"), "net-positive default surface hides Refetched (noise):\n{}", out);
-    assert!(!out.contains("Tip:"), "positive session -> no advice tip (nothing to address):\n{}", out);
-    assert!(out.contains("Recall:             healthy"), "no failed expands -> healthy:\n{}", out);
+    assert!(
+        out.starts_with("Knapsack is saving context\n"),
+        "net-positive -> 'saving context' header:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Saved this session: 8,000 tokens"),
+        "shows gross saved (not net):\n{}",
+        out
+    );
+    assert!(
+        out.contains("Reduction:          74%"),
+        "shows net/raw as integer percent:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Refetched:"),
+        "net-positive default surface hides Refetched (noise):\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Tip:"),
+        "positive session -> no advice tip (nothing to address):\n{}",
+        out
+    );
+    assert!(
+        out.contains("Recall:             healthy"),
+        "no failed expands -> healthy:\n{}",
+        out
+    );
     // Verbose-only detail must NOT appear on default.
-    assert!(!out.contains("Store:"), "default surface omits Store line:\n{}", out);
-    assert!(!out.contains("Lifetime:"), "single session -> no lifetime footer:\n{}", out);
+    assert!(
+        !out.contains("Store:"),
+        "default surface omits Store line:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Lifetime:"),
+        "single session -> no lifetime footer:\n{}",
+        out
+    );
 
     // The same Status under --verbose surfaces Refetched AND the Store line.
     let v = render_verbose(&s);
-    assert!(v.contains("Saved this session: 8,000 tokens"), "verbose still shows gross saved:\n{}", v);
-    assert!(v.contains("Refetched:          600 tokens"), "verbose surfaces refetch cost:\n{}", v);
-    assert!(v.contains("Reduction:          74%"), "verbose keeps the percent:\n{}", v);
-    assert!(v.contains("Store:              2 blocks"), "verbose surfaces store block count:\n{}", v);
+    assert!(
+        v.contains("Saved this session: 8,000 tokens"),
+        "verbose still shows gross saved:\n{}",
+        v
+    );
+    assert!(
+        v.contains("Refetched:          600 tokens"),
+        "verbose surfaces refetch cost:\n{}",
+        v
+    );
+    assert!(
+        v.contains("Reduction:          74%"),
+        "verbose keeps the percent:\n{}",
+        v
+    );
+    assert!(
+        v.contains("Store:              2 blocks"),
+        "verbose surfaces store block count:\n{}",
+        v
+    );
     assert!(v.contains("3 KB"), "store bytes rendered in KB:\n{}", v);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -242,9 +390,21 @@ fn recall_failure_in_latest_session_is_a_warning() {
     let s = collect_from(&p);
     let out = render(&s);
 
-    assert!(out.contains("⚠ 2 failed"), "two failed expands surface as a warning:\n{}", out);
-    assert!(out.contains("knapsack doctor"), "warning should point at the diagnostic:\n{}", out);
-    assert!(!out.contains("Recall:             healthy"), "must NOT also claim healthy:\n{}", out);
+    assert!(
+        out.contains("⚠ 2 failed"),
+        "two failed expands surface as a warning:\n{}",
+        out
+    );
+    assert!(
+        out.contains("knapsack doctor"),
+        "warning should point at the diagnostic:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Recall:             healthy"),
+        "must NOT also claim healthy:\n{}",
+        out
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -277,23 +437,55 @@ fn old_session_failures_dont_poison_a_clean_current_session() {
     let s = collect_from(&p);
     let out = render(&s);
 
-    assert!(out.contains("Recall:             healthy"), "latest session has no failures -> healthy:\n{}", out);
+    assert!(
+        out.contains("Recall:             healthy"),
+        "latest session has no failures -> healthy:\n{}",
+        out
+    );
     // The default surface no longer shows lifetime — that lives in `--verbose` and in
     // `knapsack metrics`. The latest-session recall health is what the user sees on
     // the headline, so old-session failures don't shout forever. We assert the absence
     // on default, then assert presence under verbose.
-    assert!(!out.contains("Lifetime:"), "default surface omits lifetime footer:\n{}", out);
-    assert!(!out.contains("recall failures total"), "default omits historical failure tally:\n{}", out);
+    assert!(
+        !out.contains("Lifetime:"),
+        "default surface omits lifetime footer:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("recall failures total"),
+        "default omits historical failure tally:\n{}",
+        out
+    );
 
     let v = render_verbose(&s);
-    assert!(v.contains("Lifetime:"), "verbose -> lifetime footer appears:\n{}", v);
-    assert!(v.contains("2 sessions"), "verbose lifetime footer counts sessions:\n{}", v);
+    assert!(
+        v.contains("Lifetime:"),
+        "verbose -> lifetime footer appears:\n{}",
+        v
+    );
+    assert!(
+        v.contains("2 sessions"),
+        "verbose lifetime footer counts sessions:\n{}",
+        v
+    );
     // Lifetime reports GROSS saved (900 + 1800 = 2,700), not net — see comment in
     // status.rs. This prevents "lifetime less than current session" confusion when
     // the MCP session has expands but no compresses.
-    assert!(v.contains("2,700 tokens saved"), "verbose lifetime saved is gross, not net:\n{}", v);
-    assert!(v.contains("50 refetched on recall"), "verbose lifetime surfaces refetch cost:\n{}", v);
-    assert!(v.contains("1 recall failures total"), "verbose lifetime surfaces historical failure:\n{}", v);
+    assert!(
+        v.contains("2,700 tokens saved"),
+        "verbose lifetime saved is gross, not net:\n{}",
+        v
+    );
+    assert!(
+        v.contains("50 refetched on recall"),
+        "verbose lifetime surfaces refetch cost:\n{}",
+        v
+    );
+    assert!(
+        v.contains("1 recall failures total"),
+        "verbose lifetime surfaces historical failure:\n{}",
+        v
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -327,15 +519,38 @@ fn lifetime_never_reads_less_than_a_clean_current_session() {
     // The lifetime line is now hidden on default — so the misleading "less than session"
     // framing literally cannot appear on the headline. Refetched is also hidden on a
     // net-positive default surface (8,000 with no recall against this session is +8,000).
-    assert!(out.contains("Saved this session: 8,000 tokens"), "current session gross is 8,000:\n{}", out);
-    assert!(!out.contains("Lifetime:"), "default surface omits lifetime footer:\n{}", out);
+    assert!(
+        out.contains("Saved this session: 8,000 tokens"),
+        "current session gross is 8,000:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Lifetime:"),
+        "default surface omits lifetime footer:\n{}",
+        out
+    );
 
     // Verbose surface: lifetime is back, still gross, still safe ("Lifetime ... 8,000").
     let v = render_verbose(&s);
-    assert!(v.contains("Lifetime: 8,000 tokens saved"), "verbose lifetime gross matches session:\n{}", v);
-    assert!(v.contains("3,000 refetched on recall"), "verbose lifetime refetch cost shown separately:\n{}", v);
-    let life_line = v.lines().find(|l| l.starts_with("Lifetime:")).expect("lifetime line present");
-    assert!(!life_line.contains("5,000"), "verbose lifetime must not surface the misleading net (5,000):\n{}", life_line);
+    assert!(
+        v.contains("Lifetime: 8,000 tokens saved"),
+        "verbose lifetime gross matches session:\n{}",
+        v
+    );
+    assert!(
+        v.contains("3,000 refetched on recall"),
+        "verbose lifetime refetch cost shown separately:\n{}",
+        v
+    );
+    let life_line = v
+        .lines()
+        .find(|l| l.starts_with("Lifetime:"))
+        .expect("lifetime line present");
+    assert!(
+        !life_line.contains("5,000"),
+        "verbose lifetime must not surface the misleading net (5,000):\n{}",
+        life_line
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -373,17 +588,36 @@ fn session_over_recall_shows_gross_saved_plus_refetched_not_a_negative_net() {
     // "saving context" (which would be a lie) and not "ready" (which would be wrong
     // when there's work product). The Refetched line surfaces on the default surface
     // for net-negative sessions exactly so the user understands why Reduction is negative.
-    assert!(out.starts_with("Knapsack is active\n"), "net-negative -> neutral 'active' header (never 'saving context'):\n{}", out);
+    assert!(
+        out.starts_with("Knapsack is active\n"),
+        "net-negative -> neutral 'active' header (never 'saving context'):\n{}",
+        out
+    );
     // Saved stays at the GROSS compress benefit, regardless of recall cost.
-    assert!(out.contains("Saved this session: 8,000 tokens"), "saved is gross (always >= 0):\n{}", out);
+    assert!(
+        out.contains("Saved this session: 8,000 tokens"),
+        "saved is gross (always >= 0):\n{}",
+        out
+    );
     // Refetched line appears and shows the total recall cost (3 * 9000 = 27000).
-    assert!(out.contains("Refetched:          27,000 tokens"), "net-negative -> Refetched IS shown on default:\n{}", out);
+    assert!(
+        out.contains("Refetched:          27,000 tokens"),
+        "net-negative -> Refetched IS shown on default:\n{}",
+        out
+    );
     // Reduction is negative: net = 8000 - 27000 = -19000; -19000/10000 = -190%. The
     // percentage can be negative; the saved/refetched numbers are each positive on
     // their own line, so the headline reads honestly without alarming via a "-X tokens"
     // figure under "Saved".
-    assert!(out.contains("Reduction:          -190%"), "reduction reflects honest net math:\n{}", out);
-    let saved_line = out.lines().find(|l| l.starts_with("Saved this session:")).expect("saved line");
+    assert!(
+        out.contains("Reduction:          -190%"),
+        "reduction reflects honest net math:\n{}",
+        out
+    );
+    let saved_line = out
+        .lines()
+        .find(|l| l.starts_with("Saved this session:"))
+        .expect("saved line");
     assert!(
         !saved_line.contains('-'),
         "Saved this session line must NEVER show a negative number — refetch goes on its own line: {saved_line}"
@@ -440,10 +674,26 @@ fn malformed_metrics_lines_are_skipped_not_fatal() {
     // Net-positive (2400 - 100 = 2300 > 0) -> "saving context" header, Refetched hidden
     // on default (the percentage already includes its cost). The contract that survives
     // here is the resilience: malformed JSONL lines don't crash or skew the math.
-    assert!(out.starts_with("Knapsack is saving context\n"), "net-positive -> 'saving context' header:\n{}", out);
-    assert!(out.contains("Saved this session: 2,400 tokens"), "saved is gross (2400 from the one valid compress):\n{}", out);
-    assert!(out.contains("Reduction:          76%"), "percent computed from valid lines:\n{}", out);
-    assert!(!out.contains("Refetched:"), "net-positive default surface hides Refetched line:\n{}", out);
+    assert!(
+        out.starts_with("Knapsack is saving context\n"),
+        "net-positive -> 'saving context' header:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Saved this session: 2,400 tokens"),
+        "saved is gross (2400 from the one valid compress):\n{}",
+        out
+    );
+    assert!(
+        out.contains("Reduction:          76%"),
+        "percent computed from valid lines:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Refetched:"),
+        "net-positive default surface hides Refetched line:\n{}",
+        out
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -464,11 +714,14 @@ fn current_positive_run_does_not_get_buried_by_historical_negative_lifetime() {
         &p.metrics,
         concat!(
             // Old session: a few compresses with a small contribution.
-            r#"{"t":100,"event":"compress","session":"old-1","raw":1012,"shown":150,"saved":862,"delta_hits":0,"evicted":0}"#, "\n",
+            r#"{"t":100,"event":"compress","session":"old-1","raw":1012,"shown":150,"saved":862,"delta_hits":0,"evicted":0}"#,
+            "\n",
             // The MCP recall debt — large, tagged against "old-1" via meta-attribution.
-            r#"{"t":150,"event":"expand","session":"old-1","tokens":6952811,"ok":true}"#, "\n",
+            r#"{"t":150,"event":"expand","session":"old-1","tokens":6952811,"ok":true}"#,
+            "\n",
             // CURRENT session: 13 compress events summing to the user's numbers.
-            r#"{"t":2000,"event":"compress","session":"react-fresh","raw":6689,"shown":1012,"saved":5677,"delta_hits":34,"evicted":0}"#, "\n",
+            r#"{"t":2000,"event":"compress","session":"react-fresh","raw":6689,"shown":1012,"saved":5677,"delta_hits":34,"evicted":0}"#,
+            "\n",
         ),
     );
 
@@ -476,22 +729,62 @@ fn current_positive_run_does_not_get_buried_by_historical_negative_lifetime() {
     let out = render(&s);
 
     // Headline reflects the CURRENT session's net-positive state.
-    assert!(out.starts_with("Knapsack is saving context\n"), "current session is +5,677 -> 'saving context':\n{}", out);
-    assert!(out.contains("Saved this session: 5,677 tokens"), "current session's gross savings lead:\n{}", out);
-    assert!(out.contains("Reduction:          84%"), "reduction = net/raw = 5677/6689 = 84%:\n{}", out);
+    assert!(
+        out.starts_with("Knapsack is saving context\n"),
+        "current session is +5,677 -> 'saving context':\n{}",
+        out
+    );
+    assert!(
+        out.contains("Saved this session: 5,677 tokens"),
+        "current session's gross savings lead:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Reduction:          84%"),
+        "reduction = net/raw = 5677/6689 = 84%:\n{}",
+        out
+    );
 
     // None of the historical recall debt is allowed to dominate the default surface.
     // No literal of the 6.95M tokens, no "Lifetime" footer, no NET-negative scarecrow.
-    assert!(!out.contains("Lifetime:"), "default surface omits lifetime footer:\n{}", out);
-    assert!(!out.contains("6,952,811"), "historical refetched total must not appear on default:\n{}", out);
-    assert!(!out.contains("-6,947,134"), "historical NET-negative must not appear on default:\n{}", out);
-    assert!(!out.contains("Refetched:"), "this session had 0 refetches; line must NOT appear:\n{}", out);
+    assert!(
+        !out.contains("Lifetime:"),
+        "default surface omits lifetime footer:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("6,952,811"),
+        "historical refetched total must not appear on default:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("-6,947,134"),
+        "historical NET-negative must not appear on default:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Refetched:"),
+        "this session had 0 refetches; line must NOT appear:\n{}",
+        out
+    );
 
     // Verbose still has the truth — the lifetime debt is not erased, just relocated.
     let v = render_verbose(&s);
-    assert!(v.contains("Lifetime:"), "verbose surfaces the lifetime footer:\n{}", v);
-    assert!(v.contains("6,539 tokens saved"), "verbose lifetime gross is 862 + 5677 = 6,539:\n{}", v);
-    assert!(v.contains("6,952,811 refetched on recall"), "verbose surfaces the recall debt verbatim:\n{}", v);
+    assert!(
+        v.contains("Lifetime:"),
+        "verbose surfaces the lifetime footer:\n{}",
+        v
+    );
+    assert!(
+        v.contains("6,539 tokens saved"),
+        "verbose lifetime gross is 862 + 5677 = 6,539:\n{}",
+        v
+    );
+    assert!(
+        v.contains("6,952,811 refetched on recall"),
+        "verbose surfaces the recall debt verbatim:\n{}",
+        v
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -516,8 +809,10 @@ fn current_session_truly_net_negative_matches_spec_example() {
     write_file(
         &p.metrics,
         concat!(
-            r#"{"t":100,"event":"compress","session":"current","raw":8138,"shown":2461,"saved":5677,"delta_hits":0,"evicted":0}"#, "\n",
-            r#"{"t":200,"event":"expand","session":"current","tokens":8200,"ok":true}"#, "\n",
+            r#"{"t":100,"event":"compress","session":"current","raw":8138,"shown":2461,"saved":5677,"delta_hits":0,"evicted":0}"#,
+            "\n",
+            r#"{"t":200,"event":"expand","session":"current","tokens":8200,"ok":true}"#,
+            "\n",
         ),
     );
 
@@ -525,20 +820,68 @@ fn current_session_truly_net_negative_matches_spec_example() {
     let out = render(&s);
 
     // Lines in spec order.
-    assert!(out.starts_with("Knapsack is active\n"), "net-negative header is neutral 'active':\n{}", out);
-    assert!(out.contains("Saved this session: 5,677 tokens"), "saved is gross, comma-formatted:\n{}", out);
-    assert!(out.contains("Refetched:          8,200 tokens"), "refetched line surfaces on net-negative default:\n{}", out);
-    assert!(out.contains("Reduction:          -31%"), "reduction can go negative honestly:\n{}", out);
-    assert!(out.contains("Input reduction:    active"), "input line preserved:\n{}", out);
-    assert!(out.contains("Output reduction:   active"), "output line preserved:\n{}", out);
-    assert!(out.contains("Recall:             healthy"), "recall line preserved:\n{}", out);
-    assert!(out.contains("Tip: recall smaller sections instead of expanding whole files."), "tip appears on net-negative:\n{}", out);
+    assert!(
+        out.starts_with("Knapsack is active\n"),
+        "net-negative header is neutral 'active':\n{}",
+        out
+    );
+    assert!(
+        out.contains("Saved this session: 5,677 tokens"),
+        "saved is gross, comma-formatted:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Refetched:          8,200 tokens"),
+        "refetched line surfaces on net-negative default:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Reduction:          -31%"),
+        "reduction can go negative honestly:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Input reduction:    active"),
+        "input line preserved:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Output reduction:   active"),
+        "output line preserved:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Recall:             healthy"),
+        "recall line preserved:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Tip: recall smaller sections instead of expanding whole files."),
+        "tip appears on net-negative:\n{}",
+        out
+    );
 
     // The negative is shown without faking positivity AND without dumping detail.
-    assert!(!out.contains("Knapsack is saving context"), "must not pretend savings are positive:\n{}", out);
-    assert!(!out.contains("Lifetime:"), "default surface omits lifetime footer:\n{}", out);
-    assert!(!out.contains("Store:"), "default surface omits store line:\n{}", out);
-    assert!(!out.contains("raw tokens"), "default surface omits raw/shown breakdown:\n{}", out);
+    assert!(
+        !out.contains("Knapsack is saving context"),
+        "must not pretend savings are positive:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Lifetime:"),
+        "default surface omits lifetime footer:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("Store:"),
+        "default surface omits store line:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("raw tokens"),
+        "default surface omits raw/shown breakdown:\n{}",
+        out
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

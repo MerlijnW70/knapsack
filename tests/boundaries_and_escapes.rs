@@ -19,7 +19,10 @@ use knapsack::structural;
 use knapsack::token_estimate::tokens;
 
 fn tmpstore(tag: &str) -> Store {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     Store::new(std::env::temp_dir().join(format!("kn-bdy-{}-{}-{}", tag, std::process::id(), t)))
 }
 
@@ -32,9 +35,17 @@ fn wrap_command_quotes_bin_path_with_spaces() {
     // bin path with spaces — must end up DOUBLE-QUOTED in the wrapped pipeline,
     // otherwise the shell would split on whitespace and we'd be invoking the
     // wrong program.
-    let w = wrap_command("cargo test", "/path with spaces/knapsack", "sess-1", "cargo", None);
-    assert!(w.contains("\"/path with spaces/knapsack\" pack -"),
-        "bin path must be quoted to survive shell splitting:\n{w}");
+    let w = wrap_command(
+        "cargo test",
+        "/path with spaces/knapsack",
+        "sess-1",
+        "cargo",
+        None,
+    );
+    assert!(
+        w.contains("\"/path with spaces/knapsack\" pack -"),
+        "bin path must be quoted to survive shell splitting:\n{w}"
+    );
 }
 
 #[test]
@@ -46,7 +57,10 @@ fn wrap_command_quotes_session_with_spaces() {
     // here (out of scope for input dogfood; sessions are sanitized at
     // session_path level) but we document the assumption explicitly.
     let w = wrap_command("cargo test", "/bin/k", "sess with spaces", "cargo", None);
-    assert!(w.contains("--session \"sess with spaces\""), "session quoted: {w}");
+    assert!(
+        w.contains("--session \"sess with spaces\""),
+        "session quoted: {w}"
+    );
 }
 
 #[test]
@@ -55,7 +69,10 @@ fn wrap_command_inner_command_appears_verbatim() {
     // wrapped string. Verify: a complex multi-arg command appears intact.
     let inner = "cargo test --release --features foo --bin some_bin";
     let w = wrap_command(inner, "/bin/k", "sess", "cargo", None);
-    assert!(w.contains(inner), "inner command must appear verbatim:\n{w}");
+    assert!(
+        w.contains(inner),
+        "inner command must appear verbatim:\n{w}"
+    );
 }
 
 #[test]
@@ -65,7 +82,10 @@ fn wrap_command_inner_command_with_quotes_does_not_close_outer() {
     // The user's original `"` is preserved as-is. Pin current behavior.
     let inner = r#"cargo test -- --filter "test_name""#;
     let w = wrap_command(inner, "/bin/k", "sess", "cargo", None);
-    assert!(w.contains(inner), "inner command with quotes preserved:\n{w}");
+    assert!(
+        w.contains(inner),
+        "inner command with quotes preserved:\n{w}"
+    );
 }
 
 #[test]
@@ -80,13 +100,31 @@ fn wrap_command_strips_trailing_semicolons_so_brace_block_is_well_formed() {
 #[test]
 fn wrap_command_transcript_arg_only_when_provided() {
     let none = wrap_command("cargo test", "/bin/k", "sess", "cargo", None);
-    assert!(!none.contains("--transcript"), "no transcript arg when None");
-    let some = wrap_command("cargo test", "/bin/k", "sess", "cargo", Some("/path/t.jsonl"));
-    assert!(some.contains("--transcript \"/path/t.jsonl\""), "transcript arg when Some");
+    assert!(
+        !none.contains("--transcript"),
+        "no transcript arg when None"
+    );
+    let some = wrap_command(
+        "cargo test",
+        "/bin/k",
+        "sess",
+        "cargo",
+        Some("/path/t.jsonl"),
+    );
+    assert!(
+        some.contains("--transcript \"/path/t.jsonl\""),
+        "transcript arg when Some"
+    );
     let empty = wrap_command("cargo test", "/bin/k", "sess", "cargo", Some(""));
-    assert!(!empty.contains("--transcript"), "empty transcript treated as None");
+    assert!(
+        !empty.contains("--transcript"),
+        "empty transcript treated as None"
+    );
     let blank = wrap_command("cargo test", "/bin/k", "sess", "cargo", Some("   "));
-    assert!(!blank.contains("--transcript"), "whitespace-only transcript treated as None");
+    assert!(
+        !blank.contains("--transcript"),
+        "whitespace-only transcript treated as None"
+    );
 }
 
 #[test]
@@ -96,8 +134,14 @@ fn wrap_command_exit_code_template_present() {
     let w = wrap_command("cargo test", "/bin/k", "sess", "cargo", None);
     assert!(w.contains("mktemp"), "exit-code capture uses mktemp");
     assert!(w.contains("trap"), "trap cleans up the temp file");
-    assert!(w.contains("exit "), "wrapper re-raises the original exit code");
-    assert!(w.contains("echo $?"), "writes inner's exit code to temp file");
+    assert!(
+        w.contains("exit "),
+        "wrapper re-raises the original exit code"
+    );
+    assert!(
+        w.contains("echo $?"),
+        "writes inner's exit code to temp file"
+    );
 }
 
 #[test]
@@ -127,7 +171,10 @@ fn log_at_exact_head_tail_threshold_emits_verbatim() {
     }
     let (view, elisions) = structural::compress(bytes.as_bytes(), 0, bytes.len(), ContentType::Log);
     assert!(elisions.is_empty(), "at threshold n=24: no elision");
-    assert!(view.contains("line 1") && view.contains("line 24"), "head AND tail preserved");
+    assert!(
+        view.contains("line 1") && view.contains("line 24"),
+        "head AND tail preserved"
+    );
 }
 
 #[test]
@@ -139,8 +186,10 @@ fn log_one_line_past_threshold_starts_eliding() {
     }
     let (view, elisions) = structural::compress(bytes.as_bytes(), 0, bytes.len(), ContentType::Log);
     assert_eq!(elisions.len(), 1, "n=25 should produce one elision");
-    assert!(view.contains("lines elided") || view.contains("lines elided"),
-        "view names the elision count");
+    assert!(
+        view.contains("lines elided") || view.contains("lines elided"),
+        "view names the elision count"
+    );
 }
 
 #[test]
@@ -153,7 +202,11 @@ fn log_chunk_boundary_in_block_splitter() {
     }
     let blocks = split_blocks(bytes.as_bytes(), ContentType::Log);
     // 12 plain lines should split into 2 blocks of 6 each.
-    assert!(blocks.len() >= 2, "12 plain lines must produce ≥2 blocks, got {}", blocks.len());
+    assert!(
+        blocks.len() >= 2,
+        "12 plain lines must produce ≥2 blocks, got {}",
+        blocks.len()
+    );
     for &(s, e) in &blocks {
         let n = count_lines(&bytes.as_bytes()[s..e]);
         assert!(n <= 6, "no block exceeds LOG_CHUNK=6 lines, got {n}");
@@ -170,7 +223,11 @@ fn code_min_run_boundary_for_collapse() {
     let mut ledger = Ledger::in_memory();
     let r = pack(bytes, ContentType::Code, &store, &mut ledger, 0);
     // A tiny 3-line body should appear in the view verbatim.
-    assert!(r.view.contains("a();"), "3-line body inlined verbatim:\n{}", r.view);
+    assert!(
+        r.view.contains("a();"),
+        "3-line body inlined verbatim:\n{}",
+        r.view
+    );
 }
 
 #[test]
@@ -180,9 +237,13 @@ fn json_keep_bytes_boundary_240() {
     // Build a JSON with one member just over 240 bytes.
     let big_val = "x".repeat(250);
     let bytes = format!("{{\"big\":\"{big_val}\",\"small\":\"y\"}}");
-    let (view, elisions) = structural::compress(bytes.as_bytes(), 0, bytes.len(), ContentType::Json);
+    let (view, elisions) =
+        structural::compress(bytes.as_bytes(), 0, bytes.len(), ContentType::Json);
     // The big member should be elided (or at least one elision happened).
-    assert!(!elisions.is_empty(), "big member should produce an elision:\nview={view}");
+    assert!(
+        !elisions.is_empty(),
+        "big member should produce an elision:\nview={view}"
+    );
 }
 
 // ====================================================================
@@ -333,7 +394,10 @@ fn split_lines_with_crlf() {
 #[test]
 fn count_lines_matches_split_lines_len() {
     for s in ["", "one", "a\nb", "a\nb\n", "a\n\nb", "\n", "\n\n"] {
-        assert_eq!(count_lines(s.as_bytes()), split_lines(s.as_bytes()).len(),
-            "count_lines must agree with split_lines.len() on {s:?}");
+        assert_eq!(
+            count_lines(s.as_bytes()),
+            split_lines(s.as_bytes()).len(),
+            "count_lines must agree with split_lines.len() on {s:?}"
+        );
     }
 }

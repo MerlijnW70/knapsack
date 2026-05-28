@@ -97,7 +97,10 @@ fn gc_dry_run_does_not_delete_but_counts_correctly() {
     }
     let r = gc::gc(&store, 30 * 86_400, true);
     assert_eq!(r.scanned, 20);
-    assert_eq!(r.deleted, 20, "all 20 would be deleted (counter accurate in dry-run)");
+    assert_eq!(
+        r.deleted, 20,
+        "all 20 would be deleted (counter accurate in dry-run)"
+    );
     assert_eq!(r.kept, 0);
     assert!(r.dry_run, "report mode reflects dry_run");
     // On disk, everything remains.
@@ -170,7 +173,10 @@ fn gc_tolerates_block_vanishing_mid_scan_no_panic_no_overcount() {
     let r = gc::gc(&store, 0, false);
     assert_eq!(r.scanned, 0, "orphan meta files are NOT counted as blocks");
     assert_eq!(r.deleted, 0);
-    assert!(orphan_meta.exists(), "orphan meta left alone (no block to pair-delete with)");
+    assert!(
+        orphan_meta.exists(),
+        "orphan meta left alone (no block to pair-delete with)"
+    );
 }
 
 // =====================================================================
@@ -194,7 +200,10 @@ fn gc_skips_block_with_no_meta_and_no_mtime_fallback() {
     // Verify no meta was written (ks_ blocks don't get meta)
     let block_path = shard_path(&sb.join("store"), &legacy);
     assert!(block_path.exists(), "legacy block written");
-    assert!(!meta::meta_path(&block_path).exists(), "ks_ blocks have no meta by design");
+    assert!(
+        !meta::meta_path(&block_path).exists(),
+        "ks_ blocks have no meta by design"
+    );
 
     // Sleep 1s, threshold 0 — legacy block ages via fs mtime and qualifies.
     std::thread::sleep(std::time::Duration::from_millis(1100));
@@ -229,7 +238,10 @@ fn coverage_report_matches_what_gc_would_see() {
     let (total, with_meta) = gc::coverage(&store);
     let r = gc::gc(&store, u64::MAX, true); // dry, age-out-nothing
     assert_eq!(total, r.scanned, "coverage.total == gc.scanned");
-    assert_eq!(with_meta, r.meta_present, "coverage.with_meta == gc.meta_present");
+    assert_eq!(
+        with_meta, r.meta_present,
+        "coverage.with_meta == gc.meta_present"
+    );
     assert_eq!(total, 8);
     assert_eq!(with_meta, 5, "only ks2_ blocks have meta");
 }
@@ -258,7 +270,10 @@ fn gc_counts_each_block_once_even_with_meta_sidecar_visible() {
         .filter(|e| e.path().is_dir())
         .flat_map(|e| std::fs::read_dir(e.path()).into_iter().flatten().flatten())
         .count();
-    assert_eq!(entries, 20, "10 block files + 10 meta files = 20 disk entries");
+    assert_eq!(
+        entries, 20,
+        "10 block files + 10 meta files = 20 disk entries"
+    );
 
     // gc must report 10 (not 20).
     let r = gc::gc(&store, u64::MAX, true);

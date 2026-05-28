@@ -29,7 +29,11 @@ fn line_text(bytes: &[u8], s: usize, e: usize) -> String {
 }
 
 fn is_comment(t: &str) -> bool {
-    t.starts_with("//") || t.starts_with('#') || t.starts_with('*') || t.starts_with("/*") || t.starts_with("--")
+    t.starts_with("//")
+        || t.starts_with('#')
+        || t.starts_with('*')
+        || t.starts_with("/*")
+        || t.starts_with("--")
 }
 
 fn is_closer(line: &str) -> bool {
@@ -89,7 +93,8 @@ fn body_hint(body: &str) -> String {
                 k += 1;
             }
             let followed_paren = k < chars.len() && chars[k] == '(';
-            let prev_ok = !matches!(prev, Some('.') ) && !matches!(prev, Some(c) if is_ident_part(c));
+            let prev_ok =
+                !matches!(prev, Some('.')) && !matches!(prev, Some(c) if is_ident_part(c));
             if followed_paren && prev_ok && !KW.contains(&name.as_str()) && !out.contains(&name) {
                 out.push(name);
             }
@@ -148,8 +153,8 @@ fn compress_json(bytes: &[u8], start: usize, end: usize) -> (String, Vec<Elision
         let abs_e = start + re;
         let tile = &bytes[abs_s..abs_e];
         let is_framing_open = i == 0;
-        let is_framing_close = i == last
-            || (i == last - 1 && tile.len() == 1 && matches!(tile[0], b'}' | b']'));
+        let is_framing_close =
+            i == last || (i == last - 1 && tile.len() == 1 && matches!(tile[0], b'}' | b']'));
         // Framing tiles (the opening `{`/`[`, the closing `}`/`]`, and any trailing
         // whitespace) always pass through verbatim — they're tiny and necessary for
         // the view to look like JSON.
@@ -169,7 +174,11 @@ fn compress_json(bytes: &[u8], start: usize, end: usize) -> (String, Vec<Elision
         // so the lossy view stays scannable — "dependencies" omitted reads better
         // than an anonymous marker.
         let h = handle(tile);
-        elisions.push(Elision { handle: h.clone(), start: abs_s, end: abs_e });
+        elisions.push(Elision {
+            handle: h.clone(),
+            start: abs_s,
+            end: abs_e,
+        });
         let key = extract_member_key(&tile[lead..]);
         let toks = tokens(&String::from_utf8_lossy(tile));
         let trailing_comma = tile.last() == Some(&b',');
@@ -235,28 +244,38 @@ fn compress_code(bytes: &[u8], start: usize, end: usize) -> (String, Vec<Elision
     let mut elisions: Vec<Elision> = Vec::new();
     let mut run: Vec<(usize, usize)> = Vec::new();
 
-    let flush = |run: &mut Vec<(usize, usize)>, out: &mut Vec<String>, elisions: &mut Vec<Elision>| {
-        if run.is_empty() {
-            return;
-        }
-        let bstart = run.first().unwrap().0;
-        let bend = run.last().unwrap().1;
-        let body_bytes = &bytes[bstart..bend];
-        let body_str = String::from_utf8_lossy(body_bytes);
-        let h = handle(body_bytes);
-        // Match pack.rs / pack_doc style: plain ASCII brackets, capital K, `recall` not
-        // `expand` (consistent vocabulary across all elision markers).
-        let marker = format!("[Knapsack: {}-line body{} · recall {}]", run.len(), body_hint(&body_str), h);
-        if run.len() >= MIN_RUN && tokens(&body_str) > tokens(&marker) {
-            elisions.push(Elision { handle: h, start: bstart, end: bend });
-            out.push(marker);
-        } else {
-            for &(s, e) in run.iter() {
-                out.push(line_text(bytes, s, e));
+    let flush =
+        |run: &mut Vec<(usize, usize)>, out: &mut Vec<String>, elisions: &mut Vec<Elision>| {
+            if run.is_empty() {
+                return;
             }
-        }
-        run.clear();
-    };
+            let bstart = run.first().unwrap().0;
+            let bend = run.last().unwrap().1;
+            let body_bytes = &bytes[bstart..bend];
+            let body_str = String::from_utf8_lossy(body_bytes);
+            let h = handle(body_bytes);
+            // Match pack.rs / pack_doc style: plain ASCII brackets, capital K, `recall` not
+            // `expand` (consistent vocabulary across all elision markers).
+            let marker = format!(
+                "[Knapsack: {}-line body{} · recall {}]",
+                run.len(),
+                body_hint(&body_str),
+                h
+            );
+            if run.len() >= MIN_RUN && tokens(&body_str) > tokens(&marker) {
+                elisions.push(Elision {
+                    handle: h,
+                    start: bstart,
+                    end: bend,
+                });
+                out.push(marker);
+            } else {
+                for &(s, e) in run.iter() {
+                    out.push(line_text(bytes, s, e));
+                }
+            }
+            run.clear();
+        };
 
     for &(s, e) in &lines {
         let text = line_text(bytes, s, e);
@@ -281,7 +300,16 @@ fn important(t: &str) -> bool {
     let lt = l.trim_start();
 
     // 1. Generic severity keywords + visual markers (original set).
-    const W: [&str; 8] = ["error", "warn", "fail", "panic", "exception", "fatal", "denied", "refused"];
+    const W: [&str; 8] = [
+        "error",
+        "warn",
+        "fail",
+        "panic",
+        "exception",
+        "fatal",
+        "denied",
+        "refused",
+    ];
     if W.iter().any(|w| l.contains(w)) {
         return true;
     }
@@ -309,7 +337,10 @@ fn important(t: &str) -> bool {
     // 4. Java/JVM/Gradle. "Caused by:" introduces nested exceptions; Gradle prints
     //    "* What went wrong:" / "* Try:" sections; ":task FAILED" is already caught by
     //    "fail", but the `BUILD FAILED` summary lives at the top of the line.
-    if lt.starts_with("caused by:") || tt.starts_with("* What went wrong") || tt.starts_with("* Try:") {
+    if lt.starts_with("caused by:")
+        || tt.starts_with("* What went wrong")
+        || tt.starts_with("* Try:")
+    {
         return true;
     }
 
@@ -358,7 +389,10 @@ fn compress_log(bytes: &[u8], start: usize, end: usize) -> (String, Vec<Elision>
     let mid_bytes = &bytes[mstart..mend];
     let h = handle(mid_bytes);
 
-    let mut view: Vec<String> = lines[..LOG_HEAD].iter().map(|&(s, e)| text_of(s, e)).collect();
+    let mut view: Vec<String> = lines[..LOG_HEAD]
+        .iter()
+        .map(|&(s, e)| text_of(s, e))
+        .collect();
     let keys: Vec<String> = mid
         .iter()
         .map(|&(s, e)| text_of(s, e))
@@ -377,5 +411,12 @@ fn compress_log(bytes: &[u8], start: usize, end: usize) -> (String, Vec<Elision>
     ));
     view.extend(lines[n - LOG_TAIL..].iter().map(|&(s, e)| text_of(s, e)));
 
-    (view.join("\n"), vec![Elision { handle: h, start: mstart, end: mend }])
+    (
+        view.join("\n"),
+        vec![Elision {
+            handle: h,
+            start: mstart,
+            end: mend,
+        }],
+    )
 }

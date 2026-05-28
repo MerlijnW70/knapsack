@@ -19,7 +19,13 @@ use crate::sha256::sha256_hex;
 pub type Handle = String;
 
 pub fn sha1(msg: &[u8]) -> [u8; 20] {
-    let mut h: [u32; 5] = [0x6745_2301, 0xEFCD_AB89, 0x98BA_DCFE, 0x1032_5476, 0xC3D2_E1F0];
+    let mut h: [u32; 5] = [
+        0x6745_2301,
+        0xEFCD_AB89,
+        0x98BA_DCFE,
+        0x1032_5476,
+        0xC3D2_E1F0,
+    ];
     let ml = (msg.len() as u64).wrapping_mul(8);
     let mut data = msg.to_vec();
     data.push(0x80);
@@ -31,7 +37,12 @@ pub fn sha1(msg: &[u8]) -> [u8; 20] {
     for chunk in data.chunks(64) {
         let mut w = [0u32; 80];
         for i in 0..16 {
-            w[i] = u32::from_be_bytes([chunk[i * 4], chunk[i * 4 + 1], chunk[i * 4 + 2], chunk[i * 4 + 3]]);
+            w[i] = u32::from_be_bytes([
+                chunk[i * 4],
+                chunk[i * 4 + 1],
+                chunk[i * 4 + 2],
+                chunk[i * 4 + 3],
+            ]);
         }
         for i in 16..80 {
             w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
@@ -158,7 +169,10 @@ mod tests {
         let h = handle(b"hello");
         assert!(h.starts_with("ks2_"), "new writes start with ks2_");
         assert_eq!(h.len(), 4 + 32, "ks2_ + 32 hex = 36 chars total");
-        assert!(h.chars().skip(4).all(|c| c.is_ascii_hexdigit()), "hex only after prefix");
+        assert!(
+            h.chars().skip(4).all(|c| c.is_ascii_hexdigit()),
+            "hex only after prefix"
+        );
     }
     #[test]
     fn different_inputs_give_different_handles() {
@@ -176,17 +190,38 @@ mod tests {
     fn is_valid_handle_strict() {
         // ks2_ must be exactly 32 hex
         assert!(is_valid_handle("ks2_0123456789abcdef0123456789abcdef"));
-        assert!(!is_valid_handle("ks2_0123456789abcdef0123456789abcde"), "31 hex rejected");
-        assert!(!is_valid_handle("ks2_0123456789abcdef0123456789abcdeff"), "33 hex rejected");
-        assert!(!is_valid_handle("ks2_0123456789ABCDEF0123456789abcdex"), "non-hex rejected");
+        assert!(
+            !is_valid_handle("ks2_0123456789abcdef0123456789abcde"),
+            "31 hex rejected"
+        );
+        assert!(
+            !is_valid_handle("ks2_0123456789abcdef0123456789abcdeff"),
+            "33 hex rejected"
+        );
+        assert!(
+            !is_valid_handle("ks2_0123456789ABCDEF0123456789abcdex"),
+            "non-hex rejected"
+        );
         // ks_ accepts only 10 or 16
         assert!(is_valid_handle("ks_0123456789"));
         assert!(is_valid_handle("ks_0123456789abcdef"));
-        assert!(!is_valid_handle("ks_012345678"), "9 hex rejected (not legacy)");
-        assert!(!is_valid_handle("ks_01234567890"), "11 hex rejected (not legacy)");
-        assert!(!is_valid_handle("ks_0123456789abcdef0"), "17 hex rejected (not legacy)");
+        assert!(
+            !is_valid_handle("ks_012345678"),
+            "9 hex rejected (not legacy)"
+        );
+        assert!(
+            !is_valid_handle("ks_01234567890"),
+            "11 hex rejected (not legacy)"
+        );
+        assert!(
+            !is_valid_handle("ks_0123456789abcdef0"),
+            "17 hex rejected (not legacy)"
+        );
         // Wrong prefix
-        assert!(!is_valid_handle("rk_0123456789"), "rucksack prefix rejected");
+        assert!(
+            !is_valid_handle("rk_0123456789"),
+            "rucksack prefix rejected"
+        );
         assert!(!is_valid_handle("0123456789"), "no prefix rejected");
         assert!(!is_valid_handle(""), "empty rejected");
     }
@@ -198,8 +233,15 @@ mod tests {
         // A 1 MB junk string must not echo verbatim — it must be bounded.
         let huge = "x".repeat(1_000_000);
         let out = display_handle(&huge);
-        assert!(out.len() < 200, "display must bound oversized input, got {} chars", out.len());
-        assert!(out.starts_with("xxxx"), "the head is preserved so the user can see what they typed");
+        assert!(
+            out.len() < 200,
+            "display must bound oversized input, got {} chars",
+            out.len()
+        );
+        assert!(
+            out.starts_with("xxxx"),
+            "the head is preserved so the user can see what they typed"
+        );
         assert!(out.contains("1000000"), "total length is reported");
         // Multi-byte chars are counted by char, not byte.
         let unicode_big = "é".repeat(200);
@@ -215,11 +257,17 @@ mod tests {
         assert!(!verify(&h2, b"different"));
         // Legacy 10-hex: SHA-1 truncated
         let h_legacy_10 = format!("ks_{}", &sha1_hex(b)[..10]);
-        assert!(verify(&h_legacy_10, b), "legacy 10-hex still verifies via SHA-1");
+        assert!(
+            verify(&h_legacy_10, b),
+            "legacy 10-hex still verifies via SHA-1"
+        );
         assert!(!verify(&h_legacy_10, b"other"));
         // Legacy 16-hex: SHA-1 truncated
         let h_legacy_16 = format!("ks_{}", &sha1_hex(b)[..16]);
-        assert!(verify(&h_legacy_16, b), "legacy 16-hex still verifies via SHA-1");
+        assert!(
+            verify(&h_legacy_16, b),
+            "legacy 16-hex still verifies via SHA-1"
+        );
         // Malformed
         assert!(!verify("ks2_short", b));
         assert!(!verify("not-a-handle", b));

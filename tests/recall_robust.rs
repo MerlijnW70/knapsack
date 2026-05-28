@@ -7,8 +7,16 @@ use knapsack::{pack, reconstruct, Ledger, Store};
 use std::path::PathBuf;
 
 fn tmp(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    std::env::temp_dir().join(format!("knapsack-recall-{}-{}-{}", tag, std::process::id(), t))
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "knapsack-recall-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ))
 }
 
 #[test]
@@ -42,7 +50,10 @@ fn reconstruct_never_yields_wrong_bytes_under_ct_mismatch() {
     pack(&bytes, ContentType::Code, &store, &mut ledger, 0);
 
     // Same content type used to pack -> always byte-exact.
-    assert_eq!(reconstruct(&bytes, ContentType::Code, &store).as_deref(), Some(bytes.as_slice()));
+    assert_eq!(
+        reconstruct(&bytes, ContentType::Code, &store).as_deref(),
+        Some(bytes.as_slice())
+    );
 
     // WRONG content type splits differently, so blocks may be missing -> None is allowed.
     // But it must NEVER return Some(wrong): tiling + verify-on-read guarantee exact-or-None.
@@ -56,5 +67,8 @@ fn reconstruct_of_unstored_input_is_none_not_garbage() {
     let store = Store::new(tmp("empty"));
     // Nothing was ever packed into this store.
     let bytes = b"content that was never stored\nsecond line\n";
-    assert!(reconstruct(bytes, ContentType::Log, &store).is_none(), "missing blocks -> None, never partial garbage");
+    assert!(
+        reconstruct(bytes, ContentType::Log, &store).is_none(),
+        "missing blocks -> None, never partial garbage"
+    );
 }

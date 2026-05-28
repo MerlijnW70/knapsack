@@ -19,10 +19,16 @@ const NITER: usize = 6;
 /// A 40-handler module. The first `edited` functions carry a tweaked constant, so
 /// iteration k differs from k-1 by exactly one function block.
 pub fn gen_file(edited: usize) -> String {
-    let mut out = vec!["// service.js — request handlers".to_string(), String::new()];
+    let mut out = vec![
+        "// service.js — request handlers".to_string(),
+        String::new(),
+    ];
     for i in 0..NFUN {
         let bump = if i < edited { 100 } else { 0 };
-        out.push(format!("/** Handler {}: validate the request, run the pipeline, return a result. */", i));
+        out.push(format!(
+            "/** Handler {}: validate the request, run the pipeline, return a result. */",
+            i
+        ));
         out.push(format!("function handler{}(input, options) {{", i));
         out.push("  const ctx = prepare(input, options);".to_string());
         out.push("  const items = ctx.items || [];".to_string());
@@ -35,7 +41,10 @@ pub fn gen_file(edited: usize) -> String {
         out.push("    if (it.bonus) acc += it.bonus;".to_string());
         out.push("  }".to_string());
         out.push("  const score = normalize(acc, items.length - skipped);".to_string());
-        out.push(format!("  if (score < 0) throw new RangeError('negative score in handler {}');", i));
+        out.push(format!(
+            "  if (score < 0) throw new RangeError('negative score in handler {}');",
+            i
+        ));
         out.push(format!("  return finalize(score, ctx, {});", i));
         out.push("}".to_string());
         out.push(String::new());
@@ -53,10 +62,19 @@ pub fn gen_log(fixed: usize) -> String {
         String::new(),
     ];
     for i in 0..NFUN {
-        out.push(format!("{}  src/handler{}.test.js", if i < failing { "FAIL" } else { "PASS" }, i));
+        out.push(format!(
+            "{}  src/handler{}.test.js",
+            if i < failing { "FAIL" } else { "PASS" },
+            i
+        ));
     }
     out.push(String::new());
-    out.push(format!("Tests: {} passed, {} failed, {} total", NFUN - failing, failing, NFUN));
+    out.push(format!(
+        "Tests: {} passed, {} failed, {} total",
+        NFUN - failing,
+        failing,
+        NFUN
+    ));
     out.push("Time: 3.2 s".to_string());
     out.join("\n")
 }
@@ -79,8 +97,20 @@ pub fn run() {
         let b_log = structural::compress(log.as_bytes(), 0, log.len(), ContentType::Log).0;
         let b = tokens(&b_file) + tokens(&b_log);
 
-        let c_file = pack(file.as_bytes(), ContentType::Code, &store, &mut ledger, k as u64);
-        let c_log = pack(log.as_bytes(), ContentType::Log, &store, &mut ledger, k as u64);
+        let c_file = pack(
+            file.as_bytes(),
+            ContentType::Code,
+            &store,
+            &mut ledger,
+            k as u64,
+        );
+        let c_log = pack(
+            log.as_bytes(),
+            ContentType::Log,
+            &store,
+            &mut ledger,
+            k as u64,
+        );
         let c = c_file.shown_tokens_est + c_log.shown_tokens_est;
         let unchanged = c_file.delta_hits + c_log.delta_hits;
 
@@ -93,20 +123,40 @@ pub fn run() {
     let pct = |x: usize, base: usize| (x * 100).checked_div(base).map_or(0, |q| 100 - q);
     let _ = tokens_bytes(b""); // silence unused on some paths
 
-    println!("\nKnapsack A/B/C — edit->test loop, {} iterations (read file + run tests each)\n", NITER);
-    println!("{:<11}{:>9}{:>13}{:>13}{:>11}", "iteration", "A:OFF", "B:Rucksack", "C:Knapsack", "unchanged");
+    println!(
+        "\nKnapsack A/B/C — edit->test loop, {} iterations (read file + run tests each)\n",
+        NITER
+    );
+    println!(
+        "{:<11}{:>9}{:>13}{:>13}{:>11}",
+        "iteration", "A:OFF", "B:Rucksack", "C:Knapsack", "unchanged"
+    );
     println!("{}", "-".repeat(57));
     for (k, a, b, c, u) in &rows {
-        println!("{:<11}{:>9}{:>13}{:>13}{:>11}", format!("#{}", k), a, b, c, format!("{} blk", u));
+        println!(
+            "{:<11}{:>9}{:>13}{:>13}{:>11}",
+            format!("#{}", k),
+            a,
+            b,
+            c,
+            format!("{} blk", u)
+        );
     }
     println!("{}", "-".repeat(57));
     println!("{:<11}{:>9}{:>13}{:>13}", "TOTAL", a_tot, b_tot, c_tot);
-    println!("\nvs OFF      : Rucksack -{}%   Knapsack -{}%", pct(b_tot, a_tot), pct(c_tot, a_tot));
+    println!(
+        "\nvs OFF      : Rucksack -{}%   Knapsack -{}%",
+        pct(b_tot, a_tot),
+        pct(c_tot, a_tot)
+    );
     println!(
         "vs Rucksack : Knapsack saves a further -{}%  ({} tokens over the session)",
         pct(c_tot, b_tot),
         b_tot.saturating_sub(c_tot)
     );
-    println!("recall store: {} handles · expands needed this run: 0\n", store.len());
+    println!(
+        "recall store: {} handles · expands needed this run: 0\n",
+        store.len()
+    );
     let _ = std::fs::remove_dir_all(dir);
 }

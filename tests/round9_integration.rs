@@ -18,7 +18,10 @@ use knapsack::why_log::Reason;
 use std::path::PathBuf;
 
 fn tmp(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let d = std::env::temp_dir().join(format!("kn-r9-{}-{}-{}", tag, std::process::id(), t));
     std::fs::create_dir_all(&d).unwrap();
     d
@@ -27,9 +30,10 @@ fn tmp(tag: &str) -> PathBuf {
 fn make_read_event(path: &str) -> Json {
     Json::Obj(vec![
         ("tool_name".into(), Json::Str("Read".into())),
-        ("tool_input".into(), Json::Obj(vec![
-            ("file_path".into(), Json::Str(path.into())),
-        ])),
+        (
+            "tool_input".into(),
+            Json::Obj(vec![("file_path".into(), Json::Str(path.into()))]),
+        ),
     ])
 }
 
@@ -75,8 +79,10 @@ fn read_hook_self_heals_when_store_was_wiped_but_cache_kept() {
         })
         .next()
         .expect("cache view header must name the whole-file handle");
-    assert!(whole_handle.starts_with("ks2_") && whole_handle.len() == 36,
-        "extracted handle malformed: {whole_handle:?}");
+    assert!(
+        whole_handle.starts_with("ks2_") && whole_handle.len() == 36,
+        "extracted handle malformed: {whole_handle:?}"
+    );
 
     // Sanity: expand resolves before the wipe.
     let pre_wipe = expand_handle(ExpandRequest {
@@ -95,7 +101,10 @@ fn read_hook_self_heals_when_store_was_wiped_but_cache_kept() {
 
     // Second read: should HIT the cache AND re-populate the store.
     let d2 = decide_with_gate(true, &evt);
-    assert!(matches!(d2, ReadDecision::Redirect { .. }), "second read still redirects");
+    assert!(
+        matches!(d2, ReadDecision::Redirect { .. }),
+        "second read still redirects"
+    );
 
     // After the cache-hit path runs, the handle should resolve again.
     let post_heal = expand_handle(ExpandRequest {
@@ -111,7 +120,10 @@ fn read_hook_self_heals_when_store_was_wiped_but_cache_kept() {
         knapsack::recall::RecallOut::Bytes(b) => b,
         knapsack::recall::RecallOut::Text(t) => t.into_bytes(),
     };
-    assert_eq!(got, content, "self-healed bytes must be byte-exact original");
+    assert_eq!(
+        got, content,
+        "self-healed bytes must be byte-exact original"
+    );
 }
 
 #[test]
@@ -130,7 +142,11 @@ fn read_hook_cache_hit_reason_after_self_heal() {
         ReadDecision::Redirect { log, .. } => log.reason,
         _ => panic!(),
     };
-    assert_eq!(r1, Reason::RedirectEmitted, "first read is RedirectEmitted (fresh)");
+    assert_eq!(
+        r1,
+        Reason::RedirectEmitted,
+        "first read is RedirectEmitted (fresh)"
+    );
 
     // Wipe store, repeat
     std::fs::remove_dir_all(sb.join("store")).unwrap();
@@ -139,7 +155,11 @@ fn read_hook_cache_hit_reason_after_self_heal() {
         ReadDecision::Redirect { log, .. } => log.reason,
         _ => panic!(),
     };
-    assert_eq!(r2, Reason::CacheHit, "second read is CacheHit (warm cache, store re-populated under the hood)");
+    assert_eq!(
+        r2,
+        Reason::CacheHit,
+        "second read is CacheHit (warm cache, store re-populated under the hood)"
+    );
 }
 
 // =====================================================================
@@ -162,13 +182,18 @@ fn pack_doc_round_trip(src_filename: &str, store_dir: PathBuf) {
 
     // 1. whole-file handle must resolve byte-exact
     let recalled = store.get(&r.handle).expect("whole-file handle resolves");
-    assert_eq!(recalled, original,
-        "{src_filename}: whole-file recall byte-exact");
+    assert_eq!(
+        recalled, original,
+        "{src_filename}: whole-file recall byte-exact"
+    );
 
     // 2. inspect (parse_packed) extracts the same handle + at least zero markers
     let m = parse_packed(&r.view);
-    assert_eq!(m.whole_file_handle.as_deref(), Some(r.handle.as_str()),
-        "{src_filename}: inspect agrees on whole-file handle");
+    assert_eq!(
+        m.whole_file_handle.as_deref(),
+        Some(r.handle.as_str()),
+        "{src_filename}: inspect agrees on whole-file handle"
+    );
 
     // 3. Each marker's --lines slice resolves and matches the line range in the original
     let original_text = String::from_utf8_lossy(&original);
@@ -177,7 +202,9 @@ fn pack_doc_round_trip(src_filename: &str, store_dir: PathBuf) {
         // 1-based inclusive
         let lo = marker.line_from.saturating_sub(1);
         let hi = marker.line_to.min(original_lines.len());
-        if lo >= hi { continue; }
+        if lo >= hi {
+            continue;
+        }
         let want: String = original_lines[lo..hi].join("\n");
         let got = expand_handle(ExpandRequest {
             handle: marker.handle.clone(),
@@ -191,8 +218,10 @@ fn pack_doc_round_trip(src_filename: &str, store_dir: PathBuf) {
             Some(knapsack::recall::RecallOut::Bytes(b)) => String::from_utf8_lossy(&b).into_owned(),
             None => panic!("{src_filename}: marker {marker:?} did not resolve"),
         };
-        assert_eq!(got_text, want,
-            "{src_filename}: marker {marker:?} did not stitch back to original lines");
+        assert_eq!(
+            got_text, want,
+            "{src_filename}: marker {marker:?} did not stitch back to original lines"
+        );
     }
 }
 
@@ -250,16 +279,32 @@ fn transcript_says_no_overrides_ledger_says_yes() {
     // Warm pack with NO transcript — uses ledger-only — back-refs fire
     let warm = pack_with_transcript(&payload, ContentType::Log, &store, &mut ledger, 1, None);
     let warm_delta_hits = warm.delta_hits;
-    assert!(warm_delta_hits > 0, "warm pack must produce delta hits with ledger-only");
+    assert!(
+        warm_delta_hits > 0,
+        "warm pack must produce delta hits with ledger-only"
+    );
 
     // Now warm pack with EMPTY transcript-resident set — ledger says yes but
     // transcript says no → effective Resident is false → no back-refs.
     let empty_set: HashSet<String> = HashSet::new();
-    let gated = pack_with_transcript(&payload, ContentType::Log, &store, &mut ledger, 2, Some(&empty_set));
-    assert_eq!(gated.delta_hits, 0, "transcript-says-no must override ledger-says-yes");
-    assert!(gated.evicted_resends >= warm_delta_hits / 2,
+    let gated = pack_with_transcript(
+        &payload,
+        ContentType::Log,
+        &store,
+        &mut ledger,
+        2,
+        Some(&empty_set),
+    );
+    assert_eq!(
+        gated.delta_hits, 0,
+        "transcript-says-no must override ledger-says-yes"
+    );
+    assert!(
+        gated.evicted_resends >= warm_delta_hits / 2,
         "transcript-downgrade should count as evicted-resends (got {} for {} hits)",
-        gated.evicted_resends, warm_delta_hits);
+        gated.evicted_resends,
+        warm_delta_hits
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -283,8 +328,18 @@ fn ledger_says_no_means_no_regardless_of_transcript() {
     // Inject some fake handles to mimic a transcript with claims we can't verify
     transcript.insert("ks2_ffffffffffffffffffffffffffffffff".into());
 
-    let cold = pack_with_transcript(&payload, ContentType::Log, &store, &mut ledger, 0, Some(&transcript));
-    assert_eq!(cold.delta_hits, 0, "cold ledger + transcript claims → still no hits");
+    let cold = pack_with_transcript(
+        &payload,
+        ContentType::Log,
+        &store,
+        &mut ledger,
+        0,
+        Some(&transcript),
+    );
+    assert_eq!(
+        cold.delta_hits, 0,
+        "cold ledger + transcript claims → still no hits"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -298,8 +353,10 @@ fn wrap_command_with_very_long_transcript_path() {
     let long_path: String = format!("C:/temp/{}.jsonl", "a".repeat(2000));
     let w = wrap_command("cargo test", "/bin/k", "sess", "cargo", Some(&long_path));
     // Must appear quoted with the full path (no truncation)
-    assert!(w.contains(&format!("--transcript \"{long_path}\"")),
-        "very long transcript path must be quoted verbatim");
+    assert!(
+        w.contains(&format!("--transcript \"{long_path}\"")),
+        "very long transcript path must be quoted verbatim"
+    );
 }
 
 #[test]
@@ -319,11 +376,20 @@ fn wrap_command_with_transcript_path_containing_quotes() {
 #[test]
 fn wrap_command_with_transcript_path_empty_or_whitespace_is_skipped() {
     let w1 = wrap_command("cargo test", "/bin/k", "sess", "cargo", Some(""));
-    assert!(!w1.contains("--transcript"), "empty transcript_path skipped");
+    assert!(
+        !w1.contains("--transcript"),
+        "empty transcript_path skipped"
+    );
     let w2 = wrap_command("cargo test", "/bin/k", "sess", "cargo", Some("   "));
-    assert!(!w2.contains("--transcript"), "whitespace-only transcript_path skipped");
+    assert!(
+        !w2.contains("--transcript"),
+        "whitespace-only transcript_path skipped"
+    );
     let w3 = wrap_command("cargo test", "/bin/k", "sess", "cargo", Some("\t\n"));
-    assert!(!w3.contains("--transcript"), "tab+newline transcript_path skipped");
+    assert!(
+        !w3.contains("--transcript"),
+        "tab+newline transcript_path skipped"
+    );
 }
 
 // =====================================================================
@@ -335,7 +401,8 @@ fn expand_with_lines_then_grep_filters_in_window() {
     // Order matters: --lines slices first, then --grep filters within the slice.
     let sb = EnvSandbox::new("exp-lines-grep");
     let store = Store::new(sb.join("store"));
-    let payload = b"line1 hello\nline2 world\nline3 hello world\nline4 nothing\nline5 hello again\n";
+    let payload =
+        b"line1 hello\nline2 world\nline3 hello world\nline4 nothing\nline5 hello again\n";
     let h = store.put(payload);
 
     // --lines 1-4 → first 4 lines. --grep hello → matches lines 1, 3 (not 5).
@@ -352,7 +419,10 @@ fn expand_with_lines_then_grep_filters_in_window() {
     };
     assert!(text.contains("line1 hello"));
     assert!(text.contains("line3 hello world"));
-    assert!(!text.contains("line5"), "line 5 is outside the --lines window");
+    assert!(
+        !text.contains("line5"),
+        "line 5 is outside the --lines window"
+    );
 }
 
 #[test]
@@ -377,8 +447,14 @@ fn expand_with_grep_and_context_combined() {
     assert!(text.contains("unrelated 2"));
     assert!(text.contains("TARGET"));
     assert!(text.contains("unrelated 3"));
-    assert!(!text.contains("unrelated 1"), "context=1 doesn't include unrelated 1");
-    assert!(!text.contains("unrelated 4"), "context=1 doesn't include unrelated 4");
+    assert!(
+        !text.contains("unrelated 1"),
+        "context=1 doesn't include unrelated 1"
+    );
+    assert!(
+        !text.contains("unrelated 4"),
+        "context=1 doesn't include unrelated 4"
+    );
 }
 
 #[test]
@@ -422,7 +498,9 @@ fn expand_lines_on_non_utf8_bytes_returns_full_bytes() {
     // Per recall.rs: "If the content isn't UTF-8, slicing falls back to
     // returning the full exact bytes."
     match out.unwrap() {
-        knapsack::recall::RecallOut::Bytes(b) => assert_eq!(b, payload, "fallback returns full bytes"),
+        knapsack::recall::RecallOut::Bytes(b) => {
+            assert_eq!(b, payload, "fallback returns full bytes")
+        }
         knapsack::recall::RecallOut::Text(_) => panic!("non-UTF-8 should return Bytes"),
     }
 }
@@ -452,8 +530,10 @@ fn back_to_back_packs_with_alternating_sessions_dont_interfere() {
             assert_eq!(r.delta_hits, 0, "cold first pack in each session");
         }
         if step == 2 || step == 3 {
-            assert!(r.delta_hits > 0,
-                "warm pack in session {sess} (step {step}) should have delta hits");
+            assert!(
+                r.delta_hits > 0,
+                "warm pack in session {sess} (step {step}) should have delta hits"
+            );
         }
     }
 }

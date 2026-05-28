@@ -17,6 +17,7 @@
 //! A naïve gc walking the store during that window would see:
 //!   - ks2_ block with no meta sidecar
 //!   - fs mtime ≈ now (just written)
+//!
 //! and with `--older-than 0` would compute `age >= 0` → delete a block the user's
 //! `pack_output` just returned a handle for. That's the "newly written fresh blocks
 //! deleted as old" failure mode the round-10 brief calls out as unacceptable.
@@ -101,7 +102,9 @@ pub fn gc(store: &Store, older_than_secs: u64, dry_run: bool) -> GcReport {
 /// mtime is the only signal. Skips silently if the cache directory doesn't exist.
 fn gc_read_cache(now: u64, r: &mut GcReport) {
     let dir = crate::config::read_cache_dir();
-    let Ok(entries) = fs::read_dir(&dir) else { return };
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let p = e.path();
         if !p.is_file() {
@@ -135,7 +138,9 @@ fn gc_read_cache(now: u64, r: &mut GcReport) {
 }
 
 fn consider_dir(dir: &Path, now: u64, r: &mut GcReport, store: &Store) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let path = e.path();
         if is_block_file(&path) {
@@ -198,7 +203,11 @@ fn block_age_and_size(block_path: &Path, meta_path: &Path) -> (Option<u64>, u64)
     // Meta-driven age: prefer last_accessed, fall back to created_at if last_accessed
     // is missing (corrupt meta) — created_at is still a real lower bound on activity.
     if let Some(m) = meta::read(meta_path) {
-        let when = if m.last_accessed > 0 { m.last_accessed } else { m.created_at };
+        let when = if m.last_accessed > 0 {
+            m.last_accessed
+        } else {
+            m.created_at
+        };
         if when > 0 {
             return (Some(when), len);
         }
@@ -255,7 +264,9 @@ pub fn coverage(store: &Store) -> (usize, usize) {
     for shard_entry in top.flatten() {
         let shard_path = shard_entry.path();
         let paths: Vec<PathBuf> = if shard_path.is_dir() {
-            fs::read_dir(&shard_path).map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default()
+            fs::read_dir(&shard_path)
+                .map(|d| d.flatten().map(|e| e.path()).collect())
+                .unwrap_or_default()
         } else {
             vec![shard_path]
         };

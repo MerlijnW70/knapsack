@@ -58,8 +58,13 @@ fn gen(rng: &mut Rng, max_len: usize) -> Vec<u8> {
 
 fn assert_roundtrip(input: &[u8], ct: ContentType, store: &Store, ledger: &mut Ledger, step: u64) {
     let r = pack(input, ct, store, ledger, step);
-    let back = reconstruct(input, ct, store)
-        .unwrap_or_else(|| panic!("reconstruct returned None for {}-byte input (ct={:?})", input.len(), ct));
+    let back = reconstruct(input, ct, store).unwrap_or_else(|| {
+        panic!(
+            "reconstruct returned None for {}-byte input (ct={:?})",
+            input.len(),
+            ct
+        )
+    });
     assert_eq!(
         back,
         input,
@@ -78,7 +83,11 @@ fn fuzz_reconstruct_is_byte_exact() {
     let mut rng = Rng(0x9E3779B97F4A7C15);
     for i in 0..1500u64 {
         let input = gen(&mut rng, 3000);
-        let ct = if rng.below(2) == 0 { ContentType::Log } else { ContentType::Code };
+        let ct = if rng.below(2) == 0 {
+            ContentType::Log
+        } else {
+            ContentType::Code
+        };
         assert_roundtrip(&input, ct, &store, &mut ledger, i);
     }
 }
@@ -92,19 +101,19 @@ fn adversarial_inputs_reconstruct_exact() {
     // must not poison tiling/reconstruction (we never special-case our own output).
     let glyph_line = "[Knapsack: 5 lines unchanged · recall ks_deadbeef]\n";
     let cases: Vec<Vec<u8>> = vec![
-        b"".to_vec(),                                   // empty
-        b"\n".to_vec(),                                 // lone newline
-        b"\r\n\r\n\r\n".to_vec(),                       // CRLF only
-        b"\r\r\r".to_vec(),                             // lone CR
-        b"no trailing newline".to_vec(),               // missing final \n
-        vec![0u8; 64],                                  // all NUL
-        b"\xEF\xBB\xBFwith BOM\n".to_vec(),            // UTF-8 BOM prefix
-        vec![0xFF, 0xFE, 0x00, 0x01, 0x80, 0x7F],     // invalid UTF-8 / binary
-        glyph_line.as_bytes().to_vec(),                // input that IS a fake recall marker
-        glyph_line.repeat(50).into_bytes(),            // many fake markers
+        b"".to_vec(),                                        // empty
+        b"\n".to_vec(),                                      // lone newline
+        b"\r\n\r\n\r\n".to_vec(),                            // CRLF only
+        b"\r\r\r".to_vec(),                                  // lone CR
+        b"no trailing newline".to_vec(),                     // missing final \n
+        vec![0u8; 64],                                       // all NUL
+        b"\xEF\xBB\xBFwith BOM\n".to_vec(),                  // UTF-8 BOM prefix
+        vec![0xFF, 0xFE, 0x00, 0x01, 0x80, 0x7F],            // invalid UTF-8 / binary
+        glyph_line.as_bytes().to_vec(),                      // input that IS a fake recall marker
+        glyph_line.repeat(50).into_bytes(),                  // many fake markers
         format!("{0}{0}{0}", "x".repeat(5000)).into_bytes(), // one huge line
-        "\n".repeat(2000).into_bytes(),                // thousands of blank lines
-        (0..=255u8).cycle().take(8192).collect(),     // every byte value, repeated
+        "\n".repeat(2000).into_bytes(),                      // thousands of blank lines
+        (0..=255u8).cycle().take(8192).collect(),            // every byte value, repeated
     ];
 
     for (n, input) in cases.iter().enumerate() {
@@ -112,7 +121,11 @@ fn adversarial_inputs_reconstruct_exact() {
             let r = pack(input, ct, &store, &mut ledger, n as u64);
             let back = reconstruct(input, ct, &store)
                 .unwrap_or_else(|| panic!("case #{n} ct={ct:?}: reconstruct None"));
-            assert_eq!(back, *input, "case #{n} ct={ct:?}: not byte-exact (blocks={})", r.blocks);
+            assert_eq!(
+                back, *input,
+                "case #{n} ct={ct:?}: not byte-exact (blocks={})",
+                r.blocks
+            );
         }
     }
 }
@@ -123,7 +136,10 @@ fn large_inputs_reconstruct_byte_exact() {
     let store = Store::new(store_dir("large"));
     let mut ledger = Ledger::in_memory();
     let mut rng = Rng(0x243F6A8885A308D3);
-    for (i, size) in [64 * 1024usize, 256 * 1024, 1024 * 1024].into_iter().enumerate() {
+    for (i, size) in [64 * 1024usize, 256 * 1024, 1024 * 1024]
+        .into_iter()
+        .enumerate()
+    {
         let mut input = Vec::with_capacity(size + 64);
         while input.len() < size {
             for _ in 0..rng.below(40) {
@@ -135,10 +151,18 @@ fn large_inputs_reconstruct_byte_exact() {
             }
         }
         input.truncate(size);
-        let ct = if i % 2 == 0 { ContentType::Log } else { ContentType::Code };
+        let ct = if i % 2 == 0 {
+            ContentType::Log
+        } else {
+            ContentType::Code
+        };
         let r = pack(&input, ct, &store, &mut ledger, i as u64);
         let back = reconstruct(&input, ct, &store).expect("all blocks present");
-        assert_eq!(back, input, "{size}-byte input not byte-exact (blocks={})", r.blocks);
+        assert_eq!(
+            back, input,
+            "{size}-byte input not byte-exact (blocks={})",
+            r.blocks
+        );
     }
 }
 
@@ -163,7 +187,13 @@ fn mutating_session_stays_exact_and_warms_up() {
         let r = pack(&buf, ContentType::Log, &store, &mut ledger, step);
         total_delta += r.delta_hits;
         let back = reconstruct(&buf, ContentType::Log, &store).expect("present");
-        assert_eq!(back, buf, "step {step}: reconstruction drifted from current bytes");
+        assert_eq!(
+            back, buf,
+            "step {step}: reconstruction drifted from current bytes"
+        );
     }
-    assert!(total_delta > 0, "a 30-step edit loop never hit the conditional path");
+    assert!(
+        total_delta > 0,
+        "a 30-step edit loop never hit the conditional path"
+    );
 }

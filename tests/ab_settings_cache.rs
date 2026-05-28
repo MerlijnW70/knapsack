@@ -16,7 +16,10 @@ use knapsack::json;
 use std::path::PathBuf;
 
 fn tmpfile(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     std::env::temp_dir().join(format!("kn-r7-{}-{}-{}", tag, std::process::id(), t))
 }
 
@@ -33,7 +36,10 @@ fn ab_empty_metrics_returns_clean_report_no_panic() {
     assert_eq!(r.total.net(), 0, "no data → net=0");
     assert!(r.sessions.is_empty());
     let s = ab::format(&r);
-    assert!(s.contains("no data yet"), "verdict line names empty state:\n{s}");
+    assert!(
+        s.contains("no data yet"),
+        "verdict line names empty state:\n{s}"
+    );
     let _ = std::fs::remove_file(&p);
 }
 
@@ -64,7 +70,10 @@ not json at all
     assert_eq!(r.total.saved, 210);
     assert_eq!(r.total.expand_calls, 2);
     assert_eq!(r.total.failed_expands, 1);
-    assert_eq!(r.total.refetched, 20, "only the ok expand contributes refetched");
+    assert_eq!(
+        r.total.refetched, 20,
+        "only the ok expand contributes refetched"
+    );
     assert_eq!(r.total.net(), 210 - 20, "net = saved − refetched");
     let _ = std::fs::remove_file(&p);
 }
@@ -81,7 +90,10 @@ fn ab_negative_net_session_renders_correctly() {
     let r = ab::build(&p);
     assert_eq!(r.total.net(), -150);
     let s = ab::format(&r);
-    assert!(s.contains("-150"), "negative net rendered with `-` sign:\n{s}");
+    assert!(
+        s.contains("-150"),
+        "negative net rendered with `-` sign:\n{s}"
+    );
     assert!(s.contains("net NEGATIVE"), "verdict reflects over-recall");
     let _ = std::fs::remove_file(&p);
 }
@@ -116,7 +128,11 @@ fn ab_sessions_sorted_by_net_desc() {
     let r = ab::build(&p);
     // Sessions sorted by net descending: high(900), mid(100), low(10).
     let names: Vec<&str> = r.sessions.iter().map(|s| s.0.as_str()).collect();
-    assert_eq!(names, vec!["high", "mid", "low"], "sorted by net descending");
+    assert_eq!(
+        names,
+        vec!["high", "mid", "low"],
+        "sorted by net descending"
+    );
     let _ = std::fs::remove_file(&p);
 }
 
@@ -142,8 +158,14 @@ fn ab_long_session_id_truncated_in_output() {
     let r = ab::build(&p);
     let s = ab::format(&r);
     // short() truncates session id to 19 chars + … — the FULL 50-char id must NOT appear
-    assert!(!s.contains(&long_sid), "long session id must be truncated in output");
-    assert!(s.contains("xxxxxxxxxxxxxxxxxx…"), "should show 18 chars + ellipsis");
+    assert!(
+        !s.contains(&long_sid),
+        "long session id must be truncated in output"
+    );
+    assert!(
+        s.contains("xxxxxxxxxxxxxxxxxx…"),
+        "should show 18 chars + ellipsis"
+    );
     let _ = std::fs::remove_file(&p);
 }
 
@@ -167,7 +189,10 @@ fn install_with_multiple_stale_knapsack_hooks_converges_to_one() {
     std::fs::write(&p, content).unwrap();
 
     let result = patch_settings_file(&p, "/canonical/knapsack");
-    assert!(matches!(result, Ok(Patch::Changed(_))), "two stale entries → patched");
+    assert!(
+        matches!(result, Ok(Patch::Changed(_))),
+        "two stale entries → patched"
+    );
 
     let v = json::parse(&std::fs::read_to_string(&p).unwrap()).unwrap();
     let pre = v.get("hooks").and_then(|h| h.get("PreToolUse")).unwrap();
@@ -179,8 +204,14 @@ fn install_with_multiple_stale_knapsack_hooks_converges_to_one() {
                 Some(json::Json::Arr(h)) => h,
                 _ => panic!("hooks must be an Arr"),
             };
-            let cmd = hooks_arr[0].get("command").and_then(|c| c.as_str()).unwrap();
-            assert!(cmd.contains("/canonical/knapsack"), "every entry now points at canonical: {cmd}");
+            let cmd = hooks_arr[0]
+                .get("command")
+                .and_then(|c| c.as_str())
+                .unwrap();
+            assert!(
+                cmd.contains("/canonical/knapsack"),
+                "every entry now points at canonical: {cmd}"
+            );
         }
     } else {
         panic!("PreToolUse not Array");
@@ -209,7 +240,9 @@ fn install_with_very_large_existing_config_still_patches() {
     let p = tmpfile("huge-config.json");
     let mut obj = String::from(r#"{"model":"opus","recent_chats":["#);
     for i in 0..1000 {
-        if i > 0 { obj.push(','); }
+        if i > 0 {
+            obj.push(',');
+        }
         obj.push_str(&format!("\"chat-{i}\""));
     }
     obj.push_str(r#"]}"#);
@@ -234,11 +267,18 @@ fn install_with_hook_entry_missing_matcher_field_does_not_crash() {
     // detector keys off `hooks[].command`, not `matcher`, so it should
     // handle the absence gracefully.
     let p = tmpfile("no-matcher.json");
-    std::fs::write(&p, r#"{"hooks":{"PreToolUse":[
+    std::fs::write(
+        &p,
+        r#"{"hooks":{"PreToolUse":[
         {"hooks":[{"type":"command","command":"echo unrelated"}]}
-    ]}}"#).unwrap();
+    ]}}"#,
+    )
+    .unwrap();
     let r = patch_settings_file(&p, "/bin/knapsack");
-    assert!(r.is_ok(), "matcher-less entry must not crash patch_settings");
+    assert!(
+        r.is_ok(),
+        "matcher-less entry must not crash patch_settings"
+    );
     let _ = std::fs::remove_file(&p);
 }
 
@@ -247,11 +287,18 @@ fn uninstall_with_only_stale_knapsack_hooks_removes_them_all() {
     // Two stale knapsack hooks, nothing else. Uninstall removes both, leaves
     // the file with empty hooks (pruned by the round-3 fix to {} ).
     let p = tmpfile("only-stale.json");
-    std::fs::write(&p, r#"{"hooks":{"PreToolUse":[
+    std::fs::write(
+        &p,
+        r#"{"hooks":{"PreToolUse":[
         {"matcher":"Bash","hooks":[{"type":"command","command":"\"H:/old1/knapsack\" hook"}]},
         {"matcher":"Bash","hooks":[{"type":"command","command":"\"H:/old2/knapsack\" hook"}]}
-    ]}}"#).unwrap();
-    assert!(matches!(unpatch_settings_file(&p).unwrap(), Patch::Changed(_)));
+    ]}}"#,
+    )
+    .unwrap();
+    assert!(matches!(
+        unpatch_settings_file(&p).unwrap(),
+        Patch::Changed(_)
+    ));
     assert!(!settings_has_hook(&p));
     // Scaffold pruned to {} (round-3 fix)
     let v = json::parse(&std::fs::read_to_string(&p).unwrap()).unwrap();
@@ -268,8 +315,8 @@ fn read_cache_does_not_grow_unboundedly_per_file_content() {
     // Each unique (content sha, path tag) makes one cache file. Same content
     // at the same path = SAME cache filename = re-used, not duplicated.
     // Pin the dedup property.
-    use knapsack::read_hook::decide_with_gate;
     use knapsack::json::Json;
+    use knapsack::read_hook::decide_with_gate;
 
     let sb = EnvSandbox::new("cache-dedup");
     let src = sb.join("src.rs");
@@ -283,9 +330,13 @@ fn read_cache_does_not_grow_unboundedly_per_file_content() {
     for _ in 0..10 {
         let evt = Json::Obj(vec![
             ("tool_name".into(), Json::Str("Read".into())),
-            ("tool_input".into(), Json::Obj(vec![
-                ("file_path".into(), Json::Str(src.to_string_lossy().into())),
-            ])),
+            (
+                "tool_input".into(),
+                Json::Obj(vec![(
+                    "file_path".into(),
+                    Json::Str(src.to_string_lossy().into()),
+                )]),
+            ),
         ]);
         let _ = decide_with_gate(true, &evt);
     }
@@ -294,8 +345,12 @@ fn read_cache_does_not_grow_unboundedly_per_file_content() {
         .unwrap()
         .filter_map(|e| e.ok())
         .collect();
-    assert_eq!(cache_files.len(), 1, "10 reads of same content+path → 1 cache file, got {}",
-        cache_files.len());
+    assert_eq!(
+        cache_files.len(),
+        1,
+        "10 reads of same content+path → 1 cache file, got {}",
+        cache_files.len()
+    );
 }
 
 #[test]
@@ -303,8 +358,8 @@ fn read_cache_grows_with_file_changes_but_gc_can_clean() {
     // Modify the source file N times → N distinct cache entries.
     // Then verify gc with threshold 0 cleans them all.
     use knapsack::gc;
-    use knapsack::read_hook::decide_with_gate;
     use knapsack::json::Json;
+    use knapsack::read_hook::decide_with_gate;
     use knapsack::store::Store;
 
     let sb = EnvSandbox::new("cache-gc");
@@ -320,19 +375,30 @@ fn read_cache_grows_with_file_changes_but_gc_can_clean() {
         std::fs::write(&src, &content).unwrap();
         let evt = Json::Obj(vec![
             ("tool_name".into(), Json::Str("Read".into())),
-            ("tool_input".into(), Json::Obj(vec![
-                ("file_path".into(), Json::Str(src.to_string_lossy().into())),
-            ])),
+            (
+                "tool_input".into(),
+                Json::Obj(vec![(
+                    "file_path".into(),
+                    Json::Str(src.to_string_lossy().into()),
+                )]),
+            ),
         ]);
         let _ = decide_with_gate(true, &evt);
     }
     let before_files = std::fs::read_dir(sb.join("read_cache")).unwrap().count();
-    assert!(before_files >= 5, "expected 5+ cache files (one per content sha), got {before_files}");
+    assert!(
+        before_files >= 5,
+        "expected 5+ cache files (one per content sha), got {before_files}"
+    );
 
     // gc should clean them (threshold 0 = everything past 0 seconds)
     std::thread::sleep(std::time::Duration::from_millis(1100));
     let store = Store::new(sb.join("store"));
     let report = gc::gc(&store, 0, false);
-    assert!(report.read_cache_deleted > 0, "gc must delete some cache files; got {} deleted of {} scanned",
-        report.read_cache_deleted, report.read_cache_scanned);
+    assert!(
+        report.read_cache_deleted > 0,
+        "gc must delete some cache files; got {} deleted of {} scanned",
+        report.read_cache_deleted,
+        report.read_cache_scanned
+    );
 }
