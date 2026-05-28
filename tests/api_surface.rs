@@ -10,9 +10,7 @@
 mod common;
 use common::EnvSandbox;
 
-use knapsack::api::{
-    evict, expand_handle, pack_output, record_residency, ExpandRequest, PackRequest,
-};
+use knapsack::api::{ExpandCaller, evict, expand_handle, pack_output, record_residency, ExpandRequest, PackRequest};
 use knapsack::content_type::ContentType;
 use knapsack::recall::RecallOut;
 use std::path::PathBuf;
@@ -214,6 +212,7 @@ fn expand_handle_full_recall_is_byte_exact() {
         grep: None,
         context: 0,
         session_id: "exp-caller".into(),
+        caller: ExpandCaller::Cli,
     });
     match out {
         Some(RecallOut::Bytes(b)) => assert_eq!(b, payload, "full recall must be byte-exact"),
@@ -231,6 +230,7 @@ fn expand_handle_unknown_returns_none() {
         grep: None,
         context: 0,
         session_id: "x".into(),
+        caller: ExpandCaller::Cli,
     });
     assert!(out.is_none());
 }
@@ -263,6 +263,7 @@ fn expand_handle_records_refetch_metric() {
         grep: None,
         context: 0,
         session_id: "different-caller".into(),
+        caller: ExpandCaller::Cli,
     });
 
     // metrics.jsonl should now contain an expand event.

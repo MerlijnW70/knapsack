@@ -23,7 +23,7 @@
 mod common;
 use common::EnvSandbox;
 
-use knapsack::api::{expand_handle, pack_output, ExpandRequest, PackRequest};
+use knapsack::api::{ExpandCaller, expand_handle, pack_output, ExpandRequest, PackRequest};
 use knapsack::content_type::ContentType;
 use knapsack::gc;
 use knapsack::hash;
@@ -138,6 +138,7 @@ fn pack_output_followed_by_concurrent_gc_threshold_zero_recall_works() {
             grep: None,
             context: 0,
             session_id: "pte".into(),
+            caller: ExpandCaller::Cli,
         });
         match out {
             Some(knapsack::recall::RecallOut::Bytes(b)) => {
@@ -429,7 +430,7 @@ fn metrics_writes_during_gc_remain_parseable_no_torn_lines() {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 for i in 0..300 {
                     metrics::record_compress("conc-met", 100, 50, 50, i, 0);
-                    metrics::record_expand("conc-met", 25, true);
+                    metrics::record_expand("conc-met", "ks2_test", 25, true, metrics::ExpandMode::Whole, metrics::ExpandCaller::Cli);
                 }
             }));
             if result.is_err() {

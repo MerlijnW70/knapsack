@@ -22,7 +22,7 @@
 mod common;
 use common::EnvSandbox;
 
-use knapsack::api::{expand_handle, pack_output, ExpandRequest, PackRequest};
+use knapsack::api::{ExpandCaller, expand_handle, pack_output, ExpandRequest, PackRequest};
 use knapsack::content_type::ContentType;
 use knapsack::meta;
 use knapsack::metrics;
@@ -90,6 +90,7 @@ fn pack_output_on_broken_store_succeeds_in_view_recall_returns_none() {
         grep: None,
         context: 0,
         session_id: "broken".into(),
+        caller: ExpandCaller::Cli,
     });
     assert!(
         out.is_none(),
@@ -232,6 +233,7 @@ fn api_expand_handle_returns_none_for_unknown_handle_in_clean_store() {
         grep: None,
         context: 0,
         session_id: "x".into(),
+        caller: ExpandCaller::Cli,
     });
     assert!(
         out.is_none(),
@@ -257,6 +259,7 @@ fn api_expand_handle_returns_none_for_known_handle_on_broken_store() {
         grep: None,
         context: 0,
         session_id: "x".into(),
+        caller: ExpandCaller::Cli,
     });
     assert!(out.is_none());
 }
@@ -307,6 +310,7 @@ fn repeated_put_to_broken_store_doesnt_corrupt_state_for_later_recovery() {
         grep: None,
         context: 0,
         session_id: "rec".into(),
+        caller: ExpandCaller::Cli,
     });
     assert!(out.is_some(), "after store path swap, recall works");
 }

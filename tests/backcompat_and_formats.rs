@@ -10,7 +10,7 @@
 mod common;
 use common::EnvSandbox;
 
-use knapsack::api::ExpandRequest;
+use knapsack::api::{ExpandCaller, ExpandRequest};
 use knapsack::hash::sha1_hex;
 use knapsack::sha256::sha256_hex;
 use knapsack::store::Store;
@@ -336,6 +336,7 @@ fn expand_on_unknown_handle_records_failed_expand_metric() {
         grep: None,
         context: 0,
         session_id: "failed-session".into(),
+        caller: ExpandCaller::Cli,
     };
     let out = knapsack::api::expand_handle(req);
     assert!(out.is_none());

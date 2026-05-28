@@ -6,7 +6,7 @@
 mod common;
 use common::EnvSandbox;
 
-use knapsack::api::{expand_handle, pack_output, record_residency, ExpandRequest, PackRequest};
+use knapsack::api::{ExpandCaller, expand_handle, pack_output, record_residency, ExpandRequest, PackRequest};
 use knapsack::content_type::ContentType;
 use knapsack::hook::wrap_command;
 use knapsack::json::Json;
@@ -91,6 +91,7 @@ fn read_hook_self_heals_when_store_was_wiped_but_cache_kept() {
         grep: None,
         context: 0,
         session_id: "test".into(),
+        caller: ExpandCaller::Cli,
     });
     assert!(pre_wipe.is_some(), "handle resolves pre-wipe");
 
@@ -113,6 +114,7 @@ fn read_hook_self_heals_when_store_was_wiped_but_cache_kept() {
         grep: None,
         context: 0,
         session_id: "test".into(),
+        caller: ExpandCaller::Cli,
     });
     assert!(post_heal.is_some(), "handle MUST resolve after self-heal");
     // And byte-exact: post-heal bytes == original
@@ -212,6 +214,7 @@ fn pack_doc_round_trip(src_filename: &str, store_dir: PathBuf) {
             grep: None,
             context: 0,
             session_id: "rt".into(),
+            caller: ExpandCaller::Cli,
         });
         let got_text = match got {
             Some(knapsack::recall::RecallOut::Text(t)) => t,
@@ -412,6 +415,7 @@ fn expand_with_lines_then_grep_filters_in_window() {
         grep: Some("hello".into()),
         context: 0,
         session_id: "x".into(),
+        caller: ExpandCaller::Cli,
     });
     let text = match out.unwrap() {
         knapsack::recall::RecallOut::Text(t) => t,
@@ -438,6 +442,7 @@ fn expand_with_grep_and_context_combined() {
         grep: Some("TARGET".into()),
         context: 1,
         session_id: "x".into(),
+        caller: ExpandCaller::Cli,
     });
     let text = match out.unwrap() {
         knapsack::recall::RecallOut::Text(t) => t,
@@ -470,6 +475,7 @@ fn expand_grep_with_unicode_pattern() {
         grep: Some("世界".into()),
         context: 0,
         session_id: "x".into(),
+        caller: ExpandCaller::Cli,
     });
     let text = match out.unwrap() {
         knapsack::recall::RecallOut::Text(t) => t,
@@ -494,6 +500,7 @@ fn expand_lines_on_non_utf8_bytes_returns_full_bytes() {
         grep: None,
         context: 0,
         session_id: "x".into(),
+        caller: ExpandCaller::Cli,
     });
     // Per recall.rs: "If the content isn't UTF-8, slicing falls back to
     // returning the full exact bytes."
