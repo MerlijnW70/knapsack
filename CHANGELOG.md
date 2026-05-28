@@ -5,7 +5,28 @@ All notable changes to Knapsack are documented here. Format follows
 
 ## [Unreleased]
 
-## [0.0.2] — 2026-05-28
+### Fixed (release pipeline)
+
+- **`release.yml` matrix race in `softprops/action-gh-release@v2` resolved.**
+  v0.0.2's first tag-push produced an incomplete release: all four matrix
+  jobs (linux/macos-x64/macos-arm64/windows) raced to *create* the Release
+  object via `softprops/action-gh-release@v2` simultaneously. Linux and
+  Windows lost with `HttpError: Validation Failed: {"resource":"Release",
+  "code":"already_exists","field":"tag_name"}`; aarch64-darwin's job
+  reported success but its assets silently never landed (overwritten in
+  the same race window). Only `x86_64-apple-darwin` shipped on the first
+  attempt; a `gh run rerun --failed` recovered Linux + Windows; aarch64
+  remained missing.
+  Fix: split into a dedicated `create-release` job that runs once before
+  the matrix and idempotently makes the Release object exist, then have
+  the matrix's `build` jobs `needs: create-release` and call the action
+  in **upload-only mode** (release already exists → no create-race
+  possible). Also split the publish step by `matrix.kind` so unix jobs
+  only list `.tar.gz` files and Windows jobs only list `.zip` files —
+  removes the harmless-but-noisy `🤔 Pattern '...zip' does not match any
+  files.` warnings.
+
+
 
 ### Changed (read_hook split + caller attribution)
 

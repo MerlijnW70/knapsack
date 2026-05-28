@@ -1,6 +1,13 @@
 name: release
-# Tag a version (git tag v0.0.1 && git push --tags) to build cross-platform binaries,
+# Tag a version (git tag v0.0.2 && git push --tags) to build cross-platform binaries,
 # attach checksums + the install scripts, and publish a GitHub Release.
+#
+# Concurrency model: one `create-release` job runs first and idempotently makes the
+# Release object exist. The matrix build/upload jobs then `needs: create-release`,
+# so they never race to create — they only upload assets to an already-existing
+# release. This avoids the softprops/action-gh-release@v2 "already_exists" race
+# that, in v0.0.2's first run, caused Linux + Windows to fail and aarch64-darwin
+# to silently lose its assets.
 on:
   push:
     tags: ["v*"]
@@ -9,7 +16,21 @@ permissions:
   contents: write
 
 jobs:
+  create-release:
+    name: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create or update release (idempotent)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+
   build:
+    needs: create-release
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -53,12 +74,21 @@ jobs:
           $h = (Get-FileHash "knapsack-${{ matrix.target }}.zip" -Algorithm SHA256).Hash.ToLower()
           "$h  knapsack-${{ matrix.target }}.zip" | Out-File -Encoding ascii "knapsack-${{ matrix.target }}.zip.sha256"
 
-      - name: Publish to release
+      - name: Upload assets (unix)
+        if: matrix.kind == 'unix'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           files: |
             target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.tar.gz
             target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.tar.gz.sha256
+
+      - name: Upload assets (windows)
+        if: matrix.kind == 'win'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
             target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.zip
             target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.zip.sha256
 
@@ -71,6 +101,7 @@ jobs:
       - name: Attach install scripts
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           files: |
             install.sh
             install.ps1
