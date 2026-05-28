@@ -146,8 +146,31 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
                 // Cache hit: re-stamp store handles so recall keeps working even if
                 // a stray `knapsack uninstall --purge` or `rm -rf ~/.knapsack/store`
                 // happened between sessions.
-                populate_store(&path, &source, &session_id);
-                v
+                let whole_handle = populate_store(&path, &source, &session_id);
+                // Self-heal probe: confirm the populated store actually serves the
+                // recall the cached view advertises. caller=Hook so metrics.jsonl
+                // separates self-heal observability from real CLI/MCP recall traffic.
+                // Range (1,1) caps the token cost to a single line — this is a sanity
+                // ping, not a content fetch.
+                let healthy = crate::api::expand_handle(crate::api::ExpandRequest {
+                    handle: whole_handle,
+                    range: Some((1, 1)),
+                    grep: None,
+                    context: 0,
+                    session_id: session_id.clone(),
+                    caller: crate::api::ExpandCaller::Hook,
+                })
+                .is_some();
+                if healthy {
+                    v
+                } else {
+                    // Store still can't serve the recall after populate (disk failure,
+                    // unwriteable store dir). Fall back to a fresh build — the in-memory
+                    // view is still valid for THIS redirect; we'll attempt to overwrite
+                    // the cache below.
+                    regenerated = true;
+                    build_view(&path, &source, &session_id)
+                }
             }
             Err(_) => {
                 regenerated = true;
