@@ -5,6 +5,8 @@ All notable changes to Knapsack are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.0.2] — 2026-05-28
+
 ### Changed (read_hook split + caller attribution)
 
 - **`src/read_hook` decomposed into `decide.rs` + `view.rs`.** The monolithic
