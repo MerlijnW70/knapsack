@@ -116,10 +116,14 @@ pub(super) fn build_view(source_path: &Path, bytes: &[u8], session_id: &str) -> 
 /// `compile_compact` so the same routing logic (markdown -> pack_doc, else
 /// structural::compress) applies to the recovery write as to the original build —
 /// no path-specific shortcut that could leave the store missing handles the cached
-/// view advertises.
-pub(super) fn populate_store(source_path: &Path, bytes: &[u8], session_id: &str) {
+/// view advertises. Returns the whole-file handle so the caller can probe-verify the
+/// recovery actually serves recall (see decide.rs cache-hit self-heal).
+pub(super) fn populate_store(
+    source_path: &Path,
+    bytes: &[u8],
+    session_id: &str,
+) -> crate::hash::Handle {
     let store = Store::with_session(store_dir(), session_id);
-    // Side-effect of compile_compact is the store population we want; the returned
-    // (compact, handle) pair is unused here.
-    let _ = compile_compact(source_path, bytes, &store);
+    let (_compact, whole_handle) = compile_compact(source_path, bytes, &store);
+    whole_handle
 }

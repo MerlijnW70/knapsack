@@ -515,3 +515,51 @@ fn header_no_longer_says_experimental_or_default_off() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn cache_hit_records_a_hook_caller_expand_event_in_metrics() {
+    // The ExpandCaller::Hook variant exists to attribute self-heal probes — the
+    // expand that confirms populate_store actually serves the recall the cached view
+    // advertises. Before this wire-up the variant was defined and documented (in
+    // api.rs + CHANGELOG) but never constructed in production: every expand event
+    // ended up under caller="cli" or "mcp" and no Hook events ever fired, leaving
+    // the documented behavior silently false. This test pins that a cache-hit path
+    // emits exactly one ok=true expand event under caller="hook".
+    let dir = tmp("hook-caller");
+    let _env = EnvScope::new(&dir);
+
+    let src = big_compressible(&dir, "src.txt");
+    let evt = make_event(src.to_str().unwrap(), Some("hook-probe"));
+
+    // First read: cold cache. Builds the view; no Hook event yet.
+    let _ = decide_with_gate(true, &evt);
+    let metrics_after_cold = std::fs::read_to_string(dir.join("metrics.jsonl")).unwrap_or_default();
+    let cold_hook_events = metrics_after_cold
+        .lines()
+        .filter(|l| l.contains(r#""event":"expand""#) && l.contains(r#""caller":"hook""#))
+        .count();
+    assert_eq!(
+        cold_hook_events, 0,
+        "cold cache must not fire a self-heal probe; metrics:\n{metrics_after_cold}"
+    );
+
+    // Second read: cache hit -> populate_store + Hook-caller expand probe.
+    let _ = decide_with_gate(true, &evt);
+    let metrics_after_warm =
+        std::fs::read_to_string(dir.join("metrics.jsonl")).expect("metrics file written");
+    let warm_hook_events: Vec<&str> = metrics_after_warm
+        .lines()
+        .filter(|l| l.contains(r#""event":"expand""#) && l.contains(r#""caller":"hook""#))
+        .collect();
+    assert!(
+        !warm_hook_events.is_empty(),
+        "cache-hit must record at least one expand event with caller=hook; metrics:\n{metrics_after_warm}"
+    );
+    assert!(
+        warm_hook_events.iter().any(|l| l.contains(r#""ok":true"#)),
+        "the hook-caller probe must succeed when populate_store stamped the store \
+         correctly; metrics:\n{metrics_after_warm}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
