@@ -11,7 +11,6 @@ use knapsack::ledger::Ledger;
 use knapsack::pack::{pack, reconstruct};
 use knapsack::store::Store;
 use knapsack::structural;
-use std::path::PathBuf;
 
 fn tmpstore(tag: &str) -> Store {
     let t = std::time::SystemTime::now()
@@ -27,8 +26,8 @@ fn pack_and_reconstruct(bytes: &[u8], ct: ContentType, tag: &str) {
     let mut ledger = Ledger::in_memory();
     let _r = pack(bytes, ct, &store, &mut ledger, 0);
     if !bytes.is_empty() {
-        let back =
-            reconstruct(bytes, ct, &store).expect(&format!("{tag}: reconstruct must return Some"));
+        let back = reconstruct(bytes, ct, &store)
+            .unwrap_or_else(|| panic!("{tag}: reconstruct must return Some"));
         assert_eq!(back, bytes, "{tag}: reconstruct must be byte-exact");
     }
 }

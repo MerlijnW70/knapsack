@@ -221,5 +221,4 @@ fn windows_kill_is_a_stronger_test_than_unix_sigint() {
     //
     // This test always passes; it's a place to put the rationale where
     // a future developer reviewing the round-10 suite can find it.
-    assert!(true, "see comment for the SIGINT-vs-kill rationale");
 }

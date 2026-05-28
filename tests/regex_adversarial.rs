@@ -14,11 +14,11 @@ use knapsack::regex::Regex;
 use std::time::{Duration, Instant};
 
 fn r(p: &str) -> Regex {
-    Regex::new(p).expect(&format!("regex compile must succeed: {p}"))
+    Regex::new(p).unwrap_or_else(|_| panic!("regex compile must succeed: {p}"))
 }
 
 fn ri(p: &str) -> Regex {
-    Regex::new_ignore_case(p).expect(&format!("regex compile must succeed: {p}"))
+    Regex::new_ignore_case(p).unwrap_or_else(|_| panic!("regex compile must succeed: {p}"))
 }
 
 /// Run `f` and assert it completes inside `cap`. Panic with a helpful message

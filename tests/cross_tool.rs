@@ -71,7 +71,7 @@ fn packing_packed_output_doesnt_corrupt_anything() {
 
     // Now pack the VIEW. It contains text + maybe a marker.
     let mut l2 = Ledger::in_memory();
-    let r2 = pack(r1.view.as_bytes(), ContentType::Log, &store, &mut l2, 0);
+    let _r2 = pack(r1.view.as_bytes(), ContentType::Log, &store, &mut l2, 0);
     let back2 =
         reconstruct(r1.view.as_bytes(), ContentType::Log, &store).expect("second reconstruct");
     assert_eq!(back2, r1.view.as_bytes(), "recursive pack still byte-exact");

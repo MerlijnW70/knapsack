@@ -344,7 +344,7 @@ fn two_concurrent_gcs_dont_panic_and_dont_double_delete_disk() {
     // succeeds on missing files). Counters are approximate per acceptance.
     let combined = combined_deleted.load(Ordering::Relaxed);
     assert!(
-        combined >= 50 && combined <= 100,
+        (50..=100).contains(&combined),
         "combined deletes in [50, 100]; got {combined} (over-count is OK, under-count not)"
     );
 

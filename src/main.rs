@@ -57,6 +57,7 @@ fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::flag;
 

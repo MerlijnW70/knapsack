@@ -15,7 +15,7 @@
 //! is never touched.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Find the test target binary. Cargo puts integration tests in the same
@@ -49,7 +49,7 @@ fn sandbox(tag: &str) -> PathBuf {
 
 /// Run the binary with sandbox env overrides + the supplied args. Optionally
 /// pipes `stdin` in. Returns (stdout, stderr, exit_code).
-fn run(sb: &PathBuf, args: &[&str], stdin: Option<&[u8]>) -> (String, String, i32) {
+fn run(sb: &Path, args: &[&str], stdin: Option<&[u8]>) -> (String, String, i32) {
     let mut cmd = Command::new(bin());
     cmd.args(args)
         .env("KNAPSACK_STORE", sb.join("store"))
@@ -175,7 +175,7 @@ fn pack_mixed_forms_in_one_invocation_work() {
 /// never-worse-than-raw guard firing on small fixtures and not emitting a
 /// recall handle. The byte-exact handle returned is what `expand` operates on,
 /// which is exactly what these tests need to drive the slicing API.
-fn store_put(sb: &PathBuf, payload: &[u8], filename: &str) -> String {
+fn store_put(sb: &Path, payload: &[u8], filename: &str) -> String {
     let p = sb.join(filename);
     std::fs::write(&p, payload).unwrap();
     let (out, stderr, code) = run(sb, &["store", "put", p.to_str().unwrap()], None);

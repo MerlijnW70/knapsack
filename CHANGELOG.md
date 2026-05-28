@@ -30,6 +30,26 @@ All notable changes to Knapsack are documented here. Format follows
   `//!` line to break a doc-comment list continuation; zero behavioral
   drift. (#1)
 
+### Infrastructure (Hardened gate widened to `--all-targets`)
+
+- **`cargo clippy -- -D warnings` widened to `cargo clippy --release
+  --all-targets -- -D warnings` across the Hardened gate.** PRs #1–#4
+  formally passed Lock 2 on a narrower scope than the spec promised —
+  the library-only default skipped `tests/`, `benches/`, and `examples/`,
+  letting test-clippy debt accumulate silently. This change clears that
+  debt and widens the gate. Lints cleared (tests/ unless noted):
+  `clippy::ptr_arg` (×4, incl. `src/config.rs:141` in a unit-test mod),
+  `expect_fun_call` (×4 — `.expect(&format!(...))` → `.unwrap_or_else(|_|
+  panic!(...))`), `len_zero`, `manual_range_contains`,
+  `needless_borrows_for_generic_args`, `approx_constant` (JSON-parser
+  float test used `3.14`, now `4.25`), `vec_init_then_push`,
+  `assertions_on_constants` (placeholder `assert!(true, …)` deleted —
+  comment carries the rationale), `items_after_test_module` (allow-attr
+  on `src/main.rs`'s test mod, which is deliberately co-located next to
+  the `flag()` fn it tests), and a `double_ended_iterator_last` →
+  `filter_next` cascade folded into `.lines().rfind(...)`. Zero
+  behavioral change; pure lint hygiene.
+
 ### Fixed (installer hardening)
 
 - **UTF-8 BOM in settings.json / .claude.json no longer breaks install.** Many
