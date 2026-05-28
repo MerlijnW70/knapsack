@@ -1,6 +1,18 @@
 name: release
-# Tag a version (git tag v0.0.1 && git push --tags) to build cross-platform binaries,
+# Tag a version (git tag v0.0.2 && git push --tags) to build cross-platform binaries,
 # attach checksums + the install scripts, and publish a GitHub Release.
+#
+# Concurrency / API model:
+#   - One `create-release` job runs first and idempotently makes the Release
+#     object exist (via `gh release create`, which is a single POST that
+#     returns 422 already_exists if the release is there — caught and treated
+#     as success).
+#   - Matrix build/upload jobs `needs: create-release` and use `gh release
+#     upload --clobber` (a single POST per asset), which does NOT trigger the
+#     softprops/action-gh-release@v2 PATCH bug that 422s on every re-run when
+#     `tag_name` is already set on the release.
+#   - `gh` is preinstalled on all GitHub-hosted runners; only `GH_TOKEN` is
+#     required and is supplied via the workflow's own GITHUB_TOKEN.
 on:
   push:
     tags: ["v*"]
@@ -9,7 +21,26 @@ permissions:
   contents: write
 
 jobs:
+  create-release:
+    name: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release (idempotent)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if gh release view "${{ github.ref_name }}" --json id >/dev/null 2>&1; then
+            echo "Release ${{ github.ref_name }} already exists — no-op."
+          else
+            gh release create "${{ github.ref_name }}" \
+              --title "${{ github.ref_name }}" \
+              --notes "Automated release for tag ${{ github.ref_name }}. See CHANGELOG.md for details."
+          fi
+
   build:
+    needs: create-release
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -53,14 +84,29 @@ jobs:
           $h = (Get-FileHash "knapsack-${{ matrix.target }}.zip" -Algorithm SHA256).Hash.ToLower()
           "$h  knapsack-${{ matrix.target }}.zip" | Out-File -Encoding ascii "knapsack-${{ matrix.target }}.zip.sha256"
 
-      - name: Publish to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.tar.gz
-            target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.tar.gz.sha256
-            target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.zip
-            target/${{ matrix.target }}/release/knapsack-${{ matrix.target }}.zip.sha256
+      - name: Upload assets (unix)
+        if: matrix.kind == 'unix'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          gh release upload "${{ github.ref_name }}" \
+            "knapsack-${{ matrix.target }}.tar.gz" \
+            "knapsack-${{ matrix.target }}.tar.gz.sha256" \
+            --clobber
+
+      - name: Upload assets (windows)
+        if: matrix.kind == 'win'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release
+          gh release upload "${{ github.ref_name }}" `
+            "knapsack-${{ matrix.target }}.zip" `
+            "knapsack-${{ matrix.target }}.zip.sha256" `
+            --clobber
 
   scripts:
     name: install scripts
@@ -69,8 +115,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Attach install scripts
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            install.sh
-            install.ps1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            install.sh \
+            install.ps1 \
+            --clobber

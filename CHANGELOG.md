@@ -5,7 +5,33 @@ All notable changes to Knapsack are documented here. Format follows
 
 ## [Unreleased]
 
-## [0.0.2] — 2026-05-28
+### Fixed (release pipeline)
+
+- **`release.yml` switched from `softprops/action-gh-release@v2` to
+  `gh release create` / `gh release upload --clobber`.** v0.0.2's first
+  tag-push produced an incomplete release: all four matrix jobs raced to
+  *create* the Release object via `softprops/action-gh-release@v2`
+  simultaneously. Linux and Windows lost with `HttpError: Validation
+  Failed: {"resource":"Release","code":"already_exists","field":"tag_name"}`;
+  aarch64-darwin reported job success but its assets silently never landed
+  (overwritten in the race). Only `x86_64-apple-darwin` shipped. A
+  `gh run rerun --failed` did NOT recover — the same `already_exists`
+  error fires on every invocation when the release exists and `tag_name`
+  is set, because the action issues a PATCH that GitHub's REST API
+  rejects. Fix replaces the action entirely with `gh` CLI calls:
+  - One `create-release` job runs first, `gh release create … || gh
+    release view …` (idempotent — if the release exists, no-op).
+  - Matrix `build` jobs `needs: create-release` and upload with
+    `gh release upload "<tag>" <files…> --clobber`. No PATCH on the
+    release object; just per-asset POSTs. No race possible.
+  - Publish step split by `matrix.kind` so unix lists `.tar.gz` only and
+    Windows lists `.zip` only — removes the noisy `🤔 Pattern '...zip'
+    does not match any files.` warnings the previous workflow emitted.
+  - Install scripts (`install.sh`, `install.ps1`) attached via the same
+    `gh release upload --clobber`, gated on the matrix being green
+    (`needs: build`).
+
+
 
 ### Changed (read_hook split + caller attribution)
 
