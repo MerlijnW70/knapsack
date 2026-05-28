@@ -5,6 +5,31 @@ All notable changes to Knapsack are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed (read_hook split + caller attribution)
+
+- **`src/read_hook` decomposed into `decide.rs` + `view.rs`.** The monolithic
+  module is split by concern (gate/cache decision flow vs. compact-view
+  emission), shrinking each piece to one testable responsibility and the
+  read-hook call-site to a thin orchestrator. (#2)
+
+- **`expand` events now carry explicit caller attribution.**
+  `api::ExpandRequest` gained a `caller: ExpandCaller` field and
+  `metrics::record_expand` widened from 3 → 6 args (adds `handle`, `mode`,
+  `caller`). Recall events in `metrics.jsonl` now name their originating
+  surface — CLI, MCP, or the Read hook's self-heal path — so post-hoc
+  analysis can attribute recall cost back to the right caller instead of
+  the session that happened to be active. (#2)
+
+### Infrastructure (Hardened Production Mode pre-convoy)
+
+- **Repo-wide `cargo fmt` sweep + `clippy::doc_lazy_continuation` fix in
+  `src/gc.rs`.** Cleared pre-existing main-debt that was blocking this
+  repo's new Hardened gate (`cargo fmt --check` ∧ `cargo clippy -D warnings`
+  ∧ `cargo build --release --tests` ∧ `cargo test --release` ∧ `cargo
+  audit` conditional on non-zero deps). Pure formatting plus one blank
+  `//!` line to break a doc-comment list continuation; zero behavioral
+  drift. (#1)
+
 ### Fixed (installer hardening)
 
 - **UTF-8 BOM in settings.json / .claude.json no longer breaks install.** Many
