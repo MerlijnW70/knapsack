@@ -20,6 +20,7 @@
 use knapsack::api::{expand_handle, pack_output, ExpandRequest, PackRequest};
 use knapsack::block::count_lines;
 use knapsack::content_type::{detect, ContentType};
+use knapsack::metrics::ExpandCaller;
 use knapsack::recall::{parse_range, RecallOut};
 use knapsack::token_estimate::tokens_bytes;
 use knapsack::{config, hook, metrics};
@@ -256,6 +257,7 @@ fn main() {
                 grep: flag(rest, "--grep").map(|s| s.to_string()),
                 context,
                 session_id,
+                caller: ExpandCaller::Cli,
             };
             match expand_handle(req) {
                 Some(RecallOut::Bytes(b)) => {

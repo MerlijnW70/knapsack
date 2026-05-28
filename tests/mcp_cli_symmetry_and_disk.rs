@@ -60,7 +60,14 @@ fn mcp_metrics_text_equals_cli_metrics_text_with_real_data() {
     metrics::record_compress("sess-a", 1000, 300, 700, 5, 0);
     metrics::record_compress("sess-a", 800, 200, 600, 3, 0);
     metrics::record_compress("sess-b", 500, 100, 400, 2, 0);
-    metrics::record_expand("sess-a", 100, true);
+    metrics::record_expand(
+        "sess-a",
+        "ks2_test",
+        100,
+        true,
+        metrics::ExpandMode::Whole,
+        metrics::ExpandCaller::Cli,
+    );
 
     let cli_text = metrics::report();
     let mcp_text = rpc_metrics_text(None);
@@ -195,6 +202,7 @@ fn expand_on_handle_from_unwriteable_store_returns_none() {
         grep: None,
         context: 0,
         session_id: "x".into(),
+        caller: api::ExpandCaller::Cli,
     });
     assert!(
         out.is_none(),

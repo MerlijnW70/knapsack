@@ -6,7 +6,7 @@
 //! C(=knapsack) <= B(=stateless) <= A(=raw) holds for the synthetic workload
 //! it's designed for.
 
-use knapsack::api::{expand_handle, pack_output, ExpandRequest, PackRequest};
+use knapsack::api::{expand_handle, pack_output, ExpandCaller, ExpandRequest, PackRequest};
 use knapsack::bench;
 use knapsack::content_type::ContentType;
 use knapsack::gc;
@@ -584,6 +584,7 @@ fn cross_session_attribution_chain_via_api() {
         grep: None,
         context: 0,
         session_id: "consumer".into(),
+        caller: ExpandCaller::Cli,
     });
 
     // Last expand event in metrics MUST be attributed to "producer", not "consumer".

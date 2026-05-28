@@ -39,6 +39,7 @@ struct EnvGuard {
     prior_cache: Option<std::ffi::OsString>,
     prior_log: Option<std::ffi::OsString>,
     prior_store: Option<std::ffi::OsString>,
+    prior_metrics: Option<std::ffi::OsString>,
 }
 
 impl EnvGuard {
@@ -49,6 +50,14 @@ impl EnvGuard {
             prior_cache: std::env::var_os("KNAPSACK_READ_CACHE"),
             prior_log: std::env::var_os("KNAPSACK_READ_LOG"),
             prior_store: std::env::var_os("KNAPSACK_STORE"),
+            // KNAPSACK_METRICS is captured + restored even though most tests in this
+            // file don't set it explicitly: the read_hook's apply() now writes
+            // `compress` events to metrics.jsonl as a write-through, so any test that
+            // drives apply() without an explicit override would otherwise scribble
+            // into ~/.knapsack/metrics.jsonl. Tests that need isolated metrics set
+            // KNAPSACK_METRICS inside the guard's lifetime; this just keeps the
+            // restore symmetric.
+            prior_metrics: std::env::var_os("KNAPSACK_METRICS"),
         }
     }
 }
@@ -66,6 +75,10 @@ impl Drop for EnvGuard {
         match self.prior_store.take() {
             Some(v) => std::env::set_var("KNAPSACK_STORE", v),
             None => std::env::remove_var("KNAPSACK_STORE"),
+        }
+        match self.prior_metrics.take() {
+            Some(v) => std::env::set_var("KNAPSACK_METRICS", v),
+            None => std::env::remove_var("KNAPSACK_METRICS"),
         }
     }
 }
@@ -537,5 +550,88 @@ fn gc_cleans_read_cache_files() {
     );
     assert!(!cache.join("aaaa.md").exists(), "cache file gone");
     assert!(!cache.join("bbbb.md").exists(), "cache file gone");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn redirect_writes_compress_event_to_metrics_jsonl() {
+    // Pre-fix bug: `apply()` recorded a why-log entry on every Redirect but never
+    // wrote a `compress` event to metrics.jsonl. Result: `/knapsack status` reported
+    // "0 tokens saved" on sessions whose only activity was Read redirects, because
+    // the status collector reads ONLY metrics.jsonl. This test pins the write-through:
+    // every Redirect must land a compress event with the real session id and the
+    // matching raw/view/saved triple, so status/metrics/ab can attribute the savings.
+    let _env = EnvGuard::new();
+    let dir = tmp("metrics-writethrough");
+    let src = big_compressible_file(&dir, "src.txt");
+    std::env::set_var("KNAPSACK_READ_CACHE", dir.join("cache"));
+    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
+    std::env::set_var("KNAPSACK_READ_LOG", dir.join("read_hook.jsonl"));
+    let metrics_path = dir.join("metrics.jsonl");
+    std::env::set_var("KNAPSACK_METRICS", &metrics_path);
+
+    // Build an event that carries an explicit session id at the outer level — the
+    // shape Claude Code actually sends. The write-through must stamp THIS id into
+    // the metrics line, not the "read-hook" fallback.
+    let session = "5dea0950-3157-47a7-85bd-8dadb98bdf82";
+    let tool_input = Json::Obj(vec![(
+        "file_path".into(),
+        Json::Str(src.to_str().unwrap().into()),
+    )]);
+    let evt = Json::Obj(vec![
+        ("tool_name".into(), Json::Str("Read".into())),
+        ("session_id".into(), Json::Str(session.into())),
+        ("tool_input".into(), tool_input),
+    ]);
+
+    knapsack::read_hook::apply(&evt, decide_with_gate(true, &evt));
+
+    let metrics_line =
+        std::fs::read_to_string(&metrics_path).expect("metrics.jsonl must exist after redirect");
+    assert!(
+        metrics_line.contains("\"event\":\"compress\""),
+        "expected a compress event after redirect; got: {metrics_line}"
+    );
+    assert!(
+        metrics_line.contains(&format!("\"session\":\"{session}\"")),
+        "compress event must carry the real session id; got: {metrics_line}"
+    );
+    // Parse the saved value and confirm it's positive — the whole point of the
+    // write-through is making real savings visible to /knapsack status.
+    let v = knapsack::json::parse(metrics_line.lines().next().unwrap()).unwrap();
+    let raw = v.get("raw").and_then(|x| x.as_f64()).unwrap() as i64;
+    let shown = v.get("shown").and_then(|x| x.as_f64()).unwrap() as i64;
+    let saved = v.get("saved").and_then(|x| x.as_f64()).unwrap() as i64;
+    assert!(raw > 0, "raw tokens > 0 (file cleared REDIRECT_MIN_BYTES)");
+    assert_eq!(saved, raw - shown, "saved must equal raw - shown");
+    assert!(
+        saved > 0,
+        "redirect implies positive savings (>=25% by MIN_REDUCTION_PERCENT)"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn passthrough_does_not_write_compress_event() {
+    // Symmetric negative: a Read that PassThroughs (too small, gate off, slicing, …)
+    // must NOT write a compress event. Only redirects represent real savings. We
+    // exercise the "too small" branch since it's the cheapest to set up.
+    let _env = EnvGuard::new();
+    let dir = tmp("metrics-no-passthrough");
+    let src = dir.join("tiny.txt");
+    std::fs::write(&src, b"way under REDIRECT_MIN_BYTES").unwrap();
+    std::env::set_var("KNAPSACK_READ_CACHE", dir.join("cache"));
+    std::env::set_var("KNAPSACK_STORE", dir.join("store"));
+    std::env::set_var("KNAPSACK_READ_LOG", dir.join("read_hook.jsonl"));
+    let metrics_path = dir.join("metrics.jsonl");
+    std::env::set_var("KNAPSACK_METRICS", &metrics_path);
+
+    let evt = make_event(src.to_str().unwrap(), &[]);
+    knapsack::read_hook::apply(&evt, decide_with_gate(true, &evt));
+
+    assert!(
+        !metrics_path.exists() || std::fs::read_to_string(&metrics_path).unwrap().is_empty(),
+        "pass-through must not append a compress event"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

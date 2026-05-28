@@ -13,7 +13,7 @@
 //!      `req.session_id` so callers without sessions, and old caches written before
 //!      this feature, keep working unchanged.
 
-use knapsack::api::{expand_handle, pack_output, ExpandRequest, PackRequest};
+use knapsack::api::{expand_handle, pack_output, ExpandCaller, ExpandRequest, PackRequest};
 use knapsack::content_type::ContentType;
 use knapsack::hash::handle as block_handle;
 use knapsack::store::Store;
@@ -203,6 +203,7 @@ fn expand_attributes_refetch_to_originating_session_not_caller() {
         grep: None,
         context: 0,
         session_id: "mcp-server".into(),
+        caller: ExpandCaller::Cli,
     });
     assert!(out.is_some(), "expand should succeed for a stored block");
 
@@ -249,6 +250,7 @@ fn expand_falls_back_to_caller_session_when_meta_missing() {
         grep: None,
         context: 0,
         session_id: "fallback-session".into(),
+        caller: ExpandCaller::Cli,
     });
 
     let events = metrics_lines(&dir.join("metrics.jsonl"));

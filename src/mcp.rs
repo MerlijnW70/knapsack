@@ -11,6 +11,7 @@
 use crate::api::{expand_handle, ExpandRequest};
 use crate::config;
 use crate::json::{self, Json};
+use crate::metrics::ExpandCaller;
 use crate::recall::{parse_range, RecallOut};
 use crate::store::Store;
 use crate::{block, metrics, token_estimate};
@@ -192,6 +193,7 @@ fn call_tool(id: Option<Json>, name: &str, args: Option<&Json>) -> String {
                 grep: arg_str(args, "grep"),
                 context,
                 session_id: "mcp".into(),
+                caller: ExpandCaller::Mcp,
             };
             match expand_handle(req) {
                 Some(RecallOut::Text(t)) => text_result(id, t, false),

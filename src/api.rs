@@ -11,6 +11,7 @@
 use crate::config::{resident_budget, session_path, store_dir};
 use crate::content_type::{detect, ContentType};
 use crate::ledger::Ledger;
+pub use crate::metrics::{ExpandCaller, ExpandMode};
 use crate::pack::{pack_with_transcript, PackResult};
 use crate::recall::{expand, RecallOut};
 use crate::store::Store;
@@ -37,6 +38,10 @@ pub struct ExpandRequest {
     pub grep: Option<String>,
     pub context: usize,
     pub session_id: String,
+    /// Which integration surface invoked this expand — surfaced into metrics.jsonl so
+    /// post-hoc analysis can attribute recall cost to the right caller (model via MCP,
+    /// user via CLI, or the Read hook's self-heal path).
+    pub caller: ExpandCaller,
 }
 
 /// Compress tool output for a session. Loads the session ledger, packs conditionally,
@@ -93,15 +98,25 @@ pub fn expand_handle(req: ExpandRequest) -> Option<RecallOut> {
     let attrib = store
         .block_session(&req.handle)
         .unwrap_or_else(|| req.session_id.clone());
+    // Mode reflects the slicing path the caller asked for. Grep wins when both are set
+    // because the range only acts as a pre-filter for the grep — the cost the recall
+    // actually pays is the grep result.
+    let mode = if req.grep.is_some() {
+        ExpandMode::Grep
+    } else if req.range.is_some() {
+        ExpandMode::Lines
+    } else {
+        ExpandMode::Whole
+    };
     match &out {
         Some(o) => {
             let n = match o {
                 RecallOut::Bytes(b) => crate::token_estimate::tokens_bytes(b),
                 RecallOut::Text(t) => crate::token_estimate::tokens(t),
             };
-            metrics::record_expand(&attrib, n, true);
+            metrics::record_expand(&attrib, &req.handle, n, true, mode, req.caller);
         }
-        None => metrics::record_expand(&attrib, 0, false),
+        None => metrics::record_expand(&attrib, &req.handle, 0, false, mode, req.caller),
     }
     out
 }

@@ -21,9 +21,23 @@ fn metrics_accounting_filtering_and_resilience() {
         metrics::record_compress("s1", 100, 30, 70, 5, 0);
     }
     for _ in 0..2 {
-        metrics::record_expand("s1", 10, true);
+        metrics::record_expand(
+            "s1",
+            "ks2_test",
+            10,
+            true,
+            metrics::ExpandMode::Whole,
+            metrics::ExpandCaller::Cli,
+        );
     }
-    metrics::record_expand("s1", 0, false);
+    metrics::record_expand(
+        "s1",
+        "ks2_test",
+        0,
+        false,
+        metrics::ExpandMode::Whole,
+        metrics::ExpandCaller::Cli,
+    );
     // s2: 1 compress.
     metrics::record_compress("s2", 80, 30, 50, 2, 1);
 
@@ -52,7 +66,14 @@ fn metrics_accounting_filtering_and_resilience() {
 
     // Over-expansion drives net negative — the scoreboard never flatters.
     metrics::record_compress("s3", 10, 8, 2, 0, 0);
-    metrics::record_expand("s3", 100, true);
+    metrics::record_expand(
+        "s3",
+        "ks2_test",
+        100,
+        true,
+        metrics::ExpandMode::Whole,
+        metrics::ExpandCaller::Cli,
+    );
     assert!(
         metrics::summary_filtered(Some("s3")).net < 0,
         "over-expansion => negative net"

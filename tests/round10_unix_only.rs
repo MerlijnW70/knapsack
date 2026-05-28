@@ -22,7 +22,7 @@
 mod common;
 use common::EnvSandbox;
 
-use knapsack::api::{expand_handle, pack_output, ExpandRequest, PackRequest};
+use knapsack::api::{expand_handle, pack_output, ExpandCaller, ExpandRequest, PackRequest};
 use knapsack::content_type::ContentType;
 use knapsack::store::Store;
 use std::io::Write;
@@ -161,6 +161,7 @@ fn pack_output_on_chmod_555_store_emits_view_recall_returns_none() {
         grep: None,
         context: 0,
         session_id: "ro-pack".into(),
+        caller: ExpandCaller::Cli,
     });
     assert!(
         out.is_none(),

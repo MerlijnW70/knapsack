@@ -63,7 +63,14 @@ fn negative_net_session_renders_identically_on_mcp_and_cli() {
     let _sb = EnvSandbox::new("neg-net-sym");
     // saved=100, refetched=300 → net=-200
     metrics::record_compress("over-recall", 500, 400, 100, 0, 0);
-    metrics::record_expand("over-recall", 300, true);
+    metrics::record_expand(
+        "over-recall",
+        "ks2_test",
+        300,
+        true,
+        metrics::ExpandMode::Whole,
+        metrics::ExpandCaller::Cli,
+    );
 
     let cli = cli_metrics_text(None);
     let mcp = rpc_metrics_text(None);
@@ -95,7 +102,14 @@ fn huge_numeric_values_render_identically() {
             0,
         );
     }
-    metrics::record_expand("whale", 999_999_999, true);
+    metrics::record_expand(
+        "whale",
+        "ks2_test",
+        999_999_999,
+        true,
+        metrics::ExpandMode::Whole,
+        metrics::ExpandCaller::Cli,
+    );
 
     let cli = cli_metrics_text(None);
     let mcp = rpc_metrics_text(None);
@@ -195,9 +209,30 @@ fn malformed_lines_dont_cause_mcp_cli_drift() {
 fn failed_expand_attribution_renders_identically_on_both_surfaces() {
     let _sb = EnvSandbox::new("failed-expand-sym");
     metrics::record_compress("flaky", 500, 100, 400, 0, 0);
-    metrics::record_expand("flaky", 50, true); // ok
-    metrics::record_expand("flaky", 75, false); // fail
-    metrics::record_expand("flaky", 25, true); // ok
+    metrics::record_expand(
+        "flaky",
+        "ks2_test",
+        50,
+        true,
+        metrics::ExpandMode::Whole,
+        metrics::ExpandCaller::Cli,
+    ); // ok
+    metrics::record_expand(
+        "flaky",
+        "ks2_test",
+        75,
+        false,
+        metrics::ExpandMode::Whole,
+        metrics::ExpandCaller::Cli,
+    ); // fail
+    metrics::record_expand(
+        "flaky",
+        "ks2_test",
+        25,
+        true,
+        metrics::ExpandMode::Whole,
+        metrics::ExpandCaller::Cli,
+    ); // ok
 
     let cli = cli_metrics_text(None);
     let mcp = rpc_metrics_text(None);
@@ -219,7 +254,14 @@ fn many_sessions_sort_order_is_identical_across_surfaces() {
         metrics::record_compress(&sid, 1000, 1000 - saved, saved as isize, 0, 0);
         // Half also have refetches to mix up the nets
         if i.is_multiple_of(2) {
-            metrics::record_expand(&sid, i * 10, true);
+            metrics::record_expand(
+                &sid,
+                "ks2_test",
+                i * 10,
+                true,
+                metrics::ExpandMode::Whole,
+                metrics::ExpandCaller::Cli,
+            );
         }
     }
 
