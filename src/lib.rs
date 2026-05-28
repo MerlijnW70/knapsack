@@ -37,7 +37,10 @@ pub mod token_estimate;
 pub mod transcript;
 pub mod why_log;
 
-pub use api::{evict, expand_handle, pack_output, record_residency, ExpandCaller, ExpandMode, ExpandRequest, PackRequest};
+pub use api::{
+    evict, expand_handle, pack_output, record_residency, ExpandCaller, ExpandMode, ExpandRequest,
+    PackRequest,
+};
 pub use content_type::{detect, ContentType};
 pub use hash::{handle, Handle};
 pub use ledger::{Ledger, Residency};

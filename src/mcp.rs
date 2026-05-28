@@ -9,9 +9,9 @@
 //!   knapsack_metrics(session_id?)                     the savings scoreboard
 
 use crate::api::{expand_handle, ExpandRequest};
-use crate::metrics::ExpandCaller;
 use crate::config;
 use crate::json::{self, Json};
+use crate::metrics::ExpandCaller;
 use crate::recall::{parse_range, RecallOut};
 use crate::store::Store;
 use crate::{block, metrics, token_estimate};

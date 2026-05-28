@@ -69,7 +69,9 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
     //    full file is much cheaper than rebuilding for every offset).
     if tool_input.get("offset").is_some() || tool_input.get("limit").is_some() {
         return PassThrough(
-            LogEntry::new(Reason::SlicingRequested).path(path_str).note("offset/limit set"),
+            LogEntry::new(Reason::SlicingRequested)
+                .path(path_str)
+                .note("offset/limit set"),
         );
     }
 
@@ -79,23 +81,35 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
         Ok(m) => m,
         Err(e) => {
             return PassThrough(
-                LogEntry::new(Reason::FileUnreadable).path(path_str).note(format!("stat: {e}")),
+                LogEntry::new(Reason::FileUnreadable)
+                    .path(path_str)
+                    .note(format!("stat: {e}")),
             );
         }
     };
     let bytes_len = meta.len();
     if bytes_len < REDIRECT_MIN_BYTES {
-        return PassThrough(LogEntry::new(Reason::TooSmall).path(path_str).bytes(bytes_len));
+        return PassThrough(
+            LogEntry::new(Reason::TooSmall)
+                .path(path_str)
+                .bytes(bytes_len),
+        );
     }
     if bytes_len > REDIRECT_MAX_BYTES {
-        return PassThrough(LogEntry::new(Reason::TooLarge).path(path_str).bytes(bytes_len));
+        return PassThrough(
+            LogEntry::new(Reason::TooLarge)
+                .path(path_str)
+                .bytes(bytes_len),
+        );
     }
 
     let source = match fs::read(&path) {
         Ok(b) => b,
         Err(e) => {
             return PassThrough(
-                LogEntry::new(Reason::FileUnreadable).path(path_str).note(format!("read: {e}")),
+                LogEntry::new(Reason::FileUnreadable)
+                    .path(path_str)
+                    .note(format!("read: {e}")),
             );
         }
     };
@@ -149,7 +163,11 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
     //    indirection costs more than it saves (extra file open, header bytes, model
     //    interpretation overhead). Pass through, log, move on.
     let saved = raw_tokens as i64 - view_tokens as i64;
-    let pct = if raw_tokens > 0 { saved * 100 / raw_tokens as i64 } else { 0 };
+    let pct = if raw_tokens > 0 {
+        saved * 100 / raw_tokens as i64
+    } else {
+        0
+    };
     if pct < MIN_REDUCTION_PERCENT {
         return PassThrough(
             LogEntry::new(Reason::WorseThanRaw)
@@ -203,7 +221,10 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
     if let Some(n) = note {
         entry = entry.note(n);
     }
-    ReadDecision::Redirect { log: entry, redirect_to: cache_path }
+    ReadDecision::Redirect {
+        log: entry,
+        redirect_to: cache_path,
+    }
 }
 
 // Decision-tree helper: every "this is why we don't redirect" path uses the same
@@ -219,7 +240,8 @@ mod tests {
     use crate::json::Json;
 
     fn make_event(file_path: &str, extra: &[(&str, Json)]) -> Json {
-        let mut tool_input: Vec<(String, Json)> = vec![("file_path".into(), Json::Str(file_path.into()))];
+        let mut tool_input: Vec<(String, Json)> =
+            vec![("file_path".into(), Json::Str(file_path.into()))];
         for (k, v) in extra {
             tool_input.push((k.to_string(), v.clone()));
         }

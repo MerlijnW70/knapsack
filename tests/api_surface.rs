@@ -10,7 +10,9 @@
 mod common;
 use common::EnvSandbox;
 
-use knapsack::api::{ExpandCaller, evict, expand_handle, pack_output, record_residency, ExpandRequest, PackRequest};
+use knapsack::api::{
+    evict, expand_handle, pack_output, record_residency, ExpandCaller, ExpandRequest, PackRequest,
+};
 use knapsack::content_type::ContentType;
 use knapsack::recall::RecallOut;
 use std::path::PathBuf;

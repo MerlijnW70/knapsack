@@ -6,7 +6,9 @@
 mod common;
 use common::EnvSandbox;
 
-use knapsack::api::{ExpandCaller, expand_handle, pack_output, record_residency, ExpandRequest, PackRequest};
+use knapsack::api::{
+    expand_handle, pack_output, record_residency, ExpandCaller, ExpandRequest, PackRequest,
+};
 use knapsack::content_type::ContentType;
 use knapsack::hook::wrap_command;
 use knapsack::json::Json;

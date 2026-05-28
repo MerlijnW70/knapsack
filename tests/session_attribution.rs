@@ -13,7 +13,7 @@
 //!      `req.session_id` so callers without sessions, and old caches written before
 //!      this feature, keep working unchanged.
 
-use knapsack::api::{ExpandCaller, expand_handle, pack_output, ExpandRequest, PackRequest};
+use knapsack::api::{expand_handle, pack_output, ExpandCaller, ExpandRequest, PackRequest};
 use knapsack::content_type::ContentType;
 use knapsack::hash::handle as block_handle;
 use knapsack::store::Store;

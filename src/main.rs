@@ -18,9 +18,9 @@
 //!   knapsack gc                       drop blocks older than --older-than DAYS (default 30)
 
 use knapsack::api::{expand_handle, pack_output, ExpandRequest, PackRequest};
-use knapsack::metrics::ExpandCaller;
 use knapsack::block::count_lines;
 use knapsack::content_type::{detect, ContentType};
+use knapsack::metrics::ExpandCaller;
 use knapsack::recall::{parse_range, RecallOut};
 use knapsack::token_estimate::tokens_bytes;
 use knapsack::{config, hook, metrics};

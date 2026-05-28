@@ -39,7 +39,11 @@ fn is_markdown_path(p: &Path) -> bool {
 ///
 /// Session id is stamped into each block's `.meta` so a later `expand_handle`
 /// attributes the recall to THIS session.
-fn compile_compact(source_path: &Path, bytes: &[u8], store: &Store) -> (String, crate::hash::Handle) {
+fn compile_compact(
+    source_path: &Path,
+    bytes: &[u8],
+    store: &Store,
+) -> (String, crate::hash::Handle) {
     if is_markdown_path(source_path) {
         // pack_doc understands markdown structure (headings, code fences, lists,
         // blockquotes). It puts the WHOLE FILE in the store under one handle and
@@ -86,8 +90,14 @@ pub(super) fn build_view(source_path: &Path, bytes: &[u8], session_id: &str) -> 
 
     let mut o = String::new();
     o.push_str("<!-- Knapsack read cache -->\n");
-    o.push_str(&format!("<!-- Original file: {} -->\n", source_path.display()));
-    o.push_str(&format!("<!-- Source digest: sha256={} -->\n", sha256_hex(bytes)));
+    o.push_str(&format!(
+        "<!-- Original file: {} -->\n",
+        source_path.display()
+    ));
+    o.push_str(&format!(
+        "<!-- Source digest: sha256={} -->\n",
+        sha256_hex(bytes)
+    ));
     o.push_str("<!-- This file is a COMPRESSED VIEW. -->\n");
     o.push_str("<!--   Exact original is on disk at the path above. -->\n");
     o.push_str(&format!(

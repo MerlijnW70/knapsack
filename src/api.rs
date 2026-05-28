@@ -88,8 +88,16 @@ pub fn pack_output(req: PackRequest) -> PackResult {
 /// blocks) or no session field set. See `Store::with_session` + `Store::block_session`.
 pub fn expand_handle(req: ExpandRequest) -> Option<RecallOut> {
     let store = Store::new(store_dir());
-    let out = expand(&store, &req.handle, req.range, req.grep.as_deref(), req.context);
-    let attrib = store.block_session(&req.handle).unwrap_or_else(|| req.session_id.clone());
+    let out = expand(
+        &store,
+        &req.handle,
+        req.range,
+        req.grep.as_deref(),
+        req.context,
+    );
+    let attrib = store
+        .block_session(&req.handle)
+        .unwrap_or_else(|| req.session_id.clone());
     // Mode reflects the slicing path the caller asked for. Grep wins when both are set
     // because the range only acts as a pre-filter for the grep — the cost the recall
     // actually pays is the grep result.

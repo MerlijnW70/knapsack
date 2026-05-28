@@ -574,7 +574,10 @@ fn redirect_writes_compress_event_to_metrics_jsonl() {
     // shape Claude Code actually sends. The write-through must stamp THIS id into
     // the metrics line, not the "read-hook" fallback.
     let session = "5dea0950-3157-47a7-85bd-8dadb98bdf82";
-    let tool_input = Json::Obj(vec![("file_path".into(), Json::Str(src.to_str().unwrap().into()))]);
+    let tool_input = Json::Obj(vec![(
+        "file_path".into(),
+        Json::Str(src.to_str().unwrap().into()),
+    )]);
     let evt = Json::Obj(vec![
         ("tool_name".into(), Json::Str("Read".into())),
         ("session_id".into(), Json::Str(session.into())),
@@ -583,8 +586,8 @@ fn redirect_writes_compress_event_to_metrics_jsonl() {
 
     knapsack::read_hook::apply(&evt, decide_with_gate(true, &evt));
 
-    let metrics_line = std::fs::read_to_string(&metrics_path)
-        .expect("metrics.jsonl must exist after redirect");
+    let metrics_line =
+        std::fs::read_to_string(&metrics_path).expect("metrics.jsonl must exist after redirect");
     assert!(
         metrics_line.contains("\"event\":\"compress\""),
         "expected a compress event after redirect; got: {metrics_line}"
@@ -601,7 +604,10 @@ fn redirect_writes_compress_event_to_metrics_jsonl() {
     let saved = v.get("saved").and_then(|x| x.as_f64()).unwrap() as i64;
     assert!(raw > 0, "raw tokens > 0 (file cleared REDIRECT_MIN_BYTES)");
     assert_eq!(saved, raw - shown, "saved must equal raw - shown");
-    assert!(saved > 0, "redirect implies positive savings (>=25% by MIN_REDUCTION_PERCENT)");
+    assert!(
+        saved > 0,
+        "redirect implies positive savings (>=25% by MIN_REDUCTION_PERCENT)"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

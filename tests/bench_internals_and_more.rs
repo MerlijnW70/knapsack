@@ -6,7 +6,7 @@
 //! C(=knapsack) <= B(=stateless) <= A(=raw) holds for the synthetic workload
 //! it's designed for.
 
-use knapsack::api::{ExpandCaller, expand_handle, pack_output, ExpandRequest, PackRequest};
+use knapsack::api::{expand_handle, pack_output, ExpandCaller, ExpandRequest, PackRequest};
 use knapsack::bench;
 use knapsack::content_type::ContentType;
 use knapsack::gc;
