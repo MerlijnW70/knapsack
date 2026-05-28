@@ -459,8 +459,8 @@ fn rt(bytes: &[u8], ct: ContentType, tag: &str) {
     let mut ledger = Ledger::in_memory();
     let _ = pack(bytes, ct, &store, &mut ledger, 0);
     if !bytes.is_empty() {
-        let back =
-            reconstruct(bytes, ct, &store).expect(&format!("{tag}: reconstruct must return Some"));
+        let back = reconstruct(bytes, ct, &store)
+            .unwrap_or_else(|| panic!("{tag}: reconstruct must return Some"));
         assert_eq!(back, bytes, "{tag}: byte-exact recall");
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -591,8 +591,7 @@ fn cross_session_attribution_chain_via_api() {
     let metrics = std::fs::read_to_string(dir.join("metrics.jsonl")).unwrap();
     let last_expand_line = metrics
         .lines()
-        .filter(|l| l.contains("\"event\":\"expand\""))
-        .last()
+        .rfind(|l| l.contains("\"event\":\"expand\""))
         .unwrap();
     assert!(last_expand_line.contains(r#""session":"producer""#),
         "refetch attributed to originating session 'producer', not caller 'consumer'; line:\n{last_expand_line}");

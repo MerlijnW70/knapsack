@@ -17,7 +17,7 @@ use common::EnvSandbox;
 
 use knapsack::install::{patch_settings_file, run_checks, Check, Patch, Status};
 use knapsack::json::{self, Json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn tmpfile(tag: &str) -> PathBuf {
     let t = std::time::SystemTime::now()
@@ -28,7 +28,7 @@ fn tmpfile(tag: &str) -> PathBuf {
 }
 
 /// Read the `matcher` field of the (single) knapsack PreToolUse entry.
-fn extract_knapsack_matcher(settings_path: &PathBuf) -> String {
+fn extract_knapsack_matcher(settings_path: &Path) -> String {
     let v = json::parse(&std::fs::read_to_string(settings_path).unwrap()).unwrap();
     let pre = v
         .get("hooks")

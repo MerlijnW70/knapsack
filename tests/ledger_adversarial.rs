@@ -154,7 +154,7 @@ fn load_handles_crlf_line_endings() {
     // in the token field. Verify current behavior — should still parse both.
     // (If it doesn't, that's a Windows-on-Windows readback bug.)
     assert!(
-        l.len() >= 1,
+        !l.is_empty(),
         "CRLF must not break loading: got {} entries",
         l.len()
     );

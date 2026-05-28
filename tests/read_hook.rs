@@ -413,7 +413,7 @@ fn cache_corruption_routes_through_regenerated_branch() {
 
     // Corrupt the cache file by replacing it with invalid UTF-8 — `read_to_string`
     // returns Err, which is the trigger for the `regenerated` branch.
-    std::fs::write(&cache_path, &[0xff, 0xfe, 0xff, 0xfe]).unwrap();
+    std::fs::write(&cache_path, [0xff, 0xfe, 0xff, 0xfe]).unwrap();
 
     let (cache_path_2, _reason_2) = unwrap_redirect(decide_with_gate(true, &evt));
     // The corrupt branch still returns the same cache path AND we wrote a fresh

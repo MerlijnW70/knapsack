@@ -134,11 +134,12 @@ mod tests {
     // because they mutate the process-global env var — zero-dep policy forbids
     // `serial_test`, so we DIY the same pattern as tests/read_hook.rs.
     use super::*;
+    use std::path::Path;
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     // ---------- session_path: the user-found bugs ----------
 
-    fn basename(p: &PathBuf) -> String {
+    fn basename(p: &Path) -> String {
         p.file_name().unwrap().to_string_lossy().into_owned()
     }
 
