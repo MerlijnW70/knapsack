@@ -1,6 +1,6 @@
 [package]
 name = "knapsack"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 description = "Conditional token reducer for agents: delta-encodes tool output against a session seen-ledger (H(output|seen)) with a byte-exact recall store. Zero-dependency deterministic core."
 license = "MIT"
