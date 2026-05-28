@@ -6,8 +6,16 @@ use knapsack::recall::{expand, parse_range, RecallOut};
 use knapsack::Store;
 
 fn store(tag: &str) -> Store {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    Store::new(std::env::temp_dir().join(format!("knapsack-slice-{}-{}-{}", tag, std::process::id(), t)))
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    Store::new(std::env::temp_dir().join(format!(
+        "knapsack-slice-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    )))
 }
 
 fn text(out: Option<RecallOut>) -> String {
@@ -31,12 +39,36 @@ fn full_recall_is_exact_bytes() {
 fn line_ranges_inclusive_and_clamped() {
     let s = store("lines");
     let h = s.put(b"l1\nl2\nl3\nl4\nl5");
-    assert_eq!(text(expand(&s, &h, Some((2, 4)), None, 0)), "l2\nl3\nl4", "1-based inclusive");
-    assert_eq!(text(expand(&s, &h, Some((0, 2)), None, 0)), "l1\nl2", "a=0 clamps to 1");
-    assert_eq!(text(expand(&s, &h, Some((3, 999)), None, 0)), "l3\nl4\nl5", "b clamps to end");
-    assert_eq!(text(expand(&s, &h, Some((4, 2)), None, 0)), "", "reversed range -> empty");
-    assert_eq!(text(expand(&s, &h, Some((50, 60)), None, 0)), "", "out of range -> empty");
-    assert_eq!(text(expand(&s, &h, Some((1, 1)), None, 0)), "l1", "single line");
+    assert_eq!(
+        text(expand(&s, &h, Some((2, 4)), None, 0)),
+        "l2\nl3\nl4",
+        "1-based inclusive"
+    );
+    assert_eq!(
+        text(expand(&s, &h, Some((0, 2)), None, 0)),
+        "l1\nl2",
+        "a=0 clamps to 1"
+    );
+    assert_eq!(
+        text(expand(&s, &h, Some((3, 999)), None, 0)),
+        "l3\nl4\nl5",
+        "b clamps to end"
+    );
+    assert_eq!(
+        text(expand(&s, &h, Some((4, 2)), None, 0)),
+        "",
+        "reversed range -> empty"
+    );
+    assert_eq!(
+        text(expand(&s, &h, Some((50, 60)), None, 0)),
+        "",
+        "out of range -> empty"
+    );
+    assert_eq!(
+        text(expand(&s, &h, Some((1, 1)), None, 0)),
+        "l1",
+        "single line"
+    );
 }
 
 #[test]
@@ -48,14 +80,26 @@ fn grep_is_regex_with_substring_fallback() {
 
     // `.` as a regex matches any char → both "a.b" and "axb" match; "zzz" does not.
     let got = text(expand(&s, &h, None, Some("a.b"), 0));
-    assert!(got.contains("a.b"), "regex `a.b` matches literal `a.b`: {got:?}");
-    assert!(got.contains("axb"), "regex `a.b` matches `axb` via `.`: {got:?}");
+    assert!(
+        got.contains("a.b"),
+        "regex `a.b` matches literal `a.b`: {got:?}"
+    );
+    assert!(
+        got.contains("axb"),
+        "regex `a.b` matches `axb` via `.`: {got:?}"
+    );
     assert!(!got.contains("zzz"), "non-matching line excluded: {got:?}");
 
     // Escape `.` to recover literal-only matching.
     let got = text(expand(&s, &h, None, Some("a\\.b"), 0));
-    assert!(got.contains("a.b"), "escaped `\\.` matches literal `.`: {got:?}");
-    assert!(!got.contains("axb"), "escaped `\\.` does NOT match `x`: {got:?}");
+    assert!(
+        got.contains("a.b"),
+        "escaped `\\.` matches literal `.`: {got:?}"
+    );
+    assert!(
+        !got.contains("axb"),
+        "escaped `\\.` does NOT match `x`: {got:?}"
+    );
 }
 
 #[test]
@@ -75,7 +119,10 @@ fn grep_case_insensitive_including_unicode() {
     let s = store("case");
     let h = s.put("café\nCAFÉ\ntea".as_bytes());
     let got = text(expand(&s, &h, None, Some("CAFÉ"), 0));
-    assert!(got.contains("café") && got.contains("CAFÉ"), "case-insensitive incl. unicode folding: {got:?}");
+    assert!(
+        got.contains("café") && got.contains("CAFÉ"),
+        "case-insensitive incl. unicode folding: {got:?}"
+    );
     assert!(!got.contains("tea"));
 }
 
@@ -83,8 +130,16 @@ fn grep_case_insensitive_including_unicode() {
 fn grep_with_context_and_no_match() {
     let s = store("ctx");
     let h = s.put(b"a\nb\nMATCH\nd\ne");
-    assert_eq!(text(expand(&s, &h, None, Some("match"), 1)), "b\nMATCH\nd", "context=1 around the match");
-    assert_eq!(text(expand(&s, &h, None, Some("nope"), 2)), "", "no match -> empty");
+    assert_eq!(
+        text(expand(&s, &h, None, Some("match"), 1)),
+        "b\nMATCH\nd",
+        "context=1 around the match"
+    );
+    assert_eq!(
+        text(expand(&s, &h, None, Some("nope"), 2)),
+        "",
+        "no match -> empty"
+    );
 }
 
 #[test]
@@ -100,7 +155,10 @@ fn lines_window_first_then_grep_filters_inside() {
     let h = s.put(b"a\nMATCH-1\nb\nc\nd\nMATCH-2\ne\nf\nMATCH-3\ng");
 
     // Whole file -> grep gives 3 matches.
-    assert_eq!(text(expand(&s, &h, None, Some("MATCH"), 0)), "MATCH-1\nMATCH-2\nMATCH-3");
+    assert_eq!(
+        text(expand(&s, &h, None, Some("MATCH"), 0)),
+        "MATCH-1\nMATCH-2\nMATCH-3"
+    );
 
     // Window 4-7 selects "c\nd\ne\nMATCH-2". Grep inside should yield ONLY MATCH-2.
     // Under the OLD order (grep first), this would index a 3-element vec at [3..7]
@@ -119,10 +177,18 @@ fn lines_window_first_then_grep_filters_inside() {
     );
 
     // Window that contains no matches returns empty (not a panic, not whole-file).
-    assert_eq!(text(expand(&s, &h, Some((3, 5)), Some("MATCH"), 0)), "", "window with no matches -> empty");
+    assert_eq!(
+        text(expand(&s, &h, Some((3, 5)), Some("MATCH"), 0)),
+        "",
+        "window with no matches -> empty"
+    );
 
     // Empty post-slice (out-of-range) with grep+context must NOT panic on `n-1`.
-    assert_eq!(text(expand(&s, &h, Some((1000, 2000)), Some("MATCH"), 5)), "", "empty post-slice survives context branch");
+    assert_eq!(
+        text(expand(&s, &h, Some((1000, 2000)), Some("MATCH"), 5)),
+        "",
+        "empty post-slice survives context branch"
+    );
 }
 
 #[test]
@@ -149,6 +215,10 @@ fn parse_range_accepts_valid_rejects_junk() {
     assert_eq!(parse_range("  2 - 5 "), Some((2, 5)));
     assert_eq!(parse_range("0-0"), Some((0, 0)));
     for junk in ["abc", "2-", "-5", "2-5-8", "", "-", "2..5"] {
-        assert_eq!(parse_range(junk), None, "junk range {junk:?} must be rejected");
+        assert_eq!(
+            parse_range(junk),
+            None,
+            "junk range {junk:?} must be rejected"
+        );
     }
 }

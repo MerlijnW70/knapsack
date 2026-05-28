@@ -29,13 +29,13 @@ pub mod pack_doc;
 pub mod read_hook;
 pub mod recall;
 pub mod regex;
-pub mod why_log;
 pub mod sha256;
 pub mod status;
 pub mod store;
 pub mod structural;
 pub mod token_estimate;
 pub mod transcript;
+pub mod why_log;
 
 pub use api::{evict, expand_handle, pack_output, record_residency, ExpandRequest, PackRequest};
 pub use content_type::{detect, ContentType};

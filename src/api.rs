@@ -47,12 +47,16 @@ pub fn pack_output(req: PackRequest) -> PackResult {
     // `Store::with_session` for why this exists.
     let store = Store::with_session(store_dir(), &req.session_id);
     let mut ledger = Ledger::load(session_path(&req.session_id));
-    let ct = req.content_hint.unwrap_or_else(|| detect(&req.bytes, req.command.as_deref()));
+    let ct = req
+        .content_hint
+        .unwrap_or_else(|| detect(&req.bytes, req.command.as_deref()));
     // Conservative transcript gate: scan only when the path is provided AND the file
     // parses with ok=true. Any failure (missing file, empty, totally unparseable)
     // returns ok=false and we drop the gate — same behaviour as before this feature.
     let scan = req.transcript_path.as_deref().map(transcript::scan);
-    let resident_set = scan.as_ref().and_then(|s| if s.ok { Some(&s.resident) } else { None });
+    let resident_set = scan
+        .as_ref()
+        .and_then(|s| if s.ok { Some(&s.resident) } else { None });
     let r = pack_with_transcript(&req.bytes, ct, &store, &mut ledger, req.step, resident_set);
     // Conservative residency: keep the resident set within budget so delta back-references
     // never point past the (estimated) context window.
@@ -79,8 +83,16 @@ pub fn pack_output(req: PackRequest) -> PackResult {
 /// blocks) or no session field set. See `Store::with_session` + `Store::block_session`.
 pub fn expand_handle(req: ExpandRequest) -> Option<RecallOut> {
     let store = Store::new(store_dir());
-    let out = expand(&store, &req.handle, req.range, req.grep.as_deref(), req.context);
-    let attrib = store.block_session(&req.handle).unwrap_or_else(|| req.session_id.clone());
+    let out = expand(
+        &store,
+        &req.handle,
+        req.range,
+        req.grep.as_deref(),
+        req.context,
+    );
+    let attrib = store
+        .block_session(&req.handle)
+        .unwrap_or_else(|| req.session_id.clone());
     match &out {
         Some(o) => {
             let n = match o {

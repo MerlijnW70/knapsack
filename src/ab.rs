@@ -69,13 +69,21 @@ pub fn read(path: &Path) -> (Agg, HashMap<String, Agg>) {
             Ok(v) => v,
             Err(_) => continue,
         };
-        let session = v.get("session").and_then(|x| x.as_str()).unwrap_or("(no session)").to_string();
+        let session = v
+            .get("session")
+            .and_then(|x| x.as_str())
+            .unwrap_or("(no session)")
+            .to_string();
         let e = map.entry(session).or_default();
         match v.get("event").and_then(|x| x.as_str()) {
             Some("compress") => {
                 let raw = numk(&v, &["raw"]);
                 let shown = numk(&v, &["shown"]);
-                let saved = if v.get("saved").is_some() { numk(&v, &["saved"]) } else { raw - shown };
+                let saved = if v.get("saved").is_some() {
+                    numk(&v, &["saved"])
+                } else {
+                    raw - shown
+                };
                 let dh = numk(&v, &["delta_hits"]);
                 let ev = numk(&v, &["evicted"]);
                 add_compress(e, raw, shown, saved, dh, ev);
@@ -164,7 +172,10 @@ pub fn format(r: &Report) -> String {
     // aggregate total
     let t = &r.total;
     o.push_str("\naggregate\n");
-    o.push_str(&format!("{:>10}{:>12}{:>12}{:>12}{:>12}\n", "compress", "raw", "saved", "refetched", "NET"));
+    o.push_str(&format!(
+        "{:>10}{:>12}{:>12}{:>12}{:>12}\n",
+        "compress", "raw", "saved", "refetched", "NET"
+    ));
     o.push_str(&"─".repeat(58));
     o.push('\n');
     o.push_str(&format!(

@@ -88,7 +88,9 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
     //    full file is much cheaper than rebuilding for every offset).
     if tool_input.get("offset").is_some() || tool_input.get("limit").is_some() {
         return PassThrough(
-            LogEntry::new(Reason::SlicingRequested).path(path_str).note("offset/limit set"),
+            LogEntry::new(Reason::SlicingRequested)
+                .path(path_str)
+                .note("offset/limit set"),
         );
     }
 
@@ -98,23 +100,35 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
         Ok(m) => m,
         Err(e) => {
             return PassThrough(
-                LogEntry::new(Reason::FileUnreadable).path(path_str).note(format!("stat: {e}")),
+                LogEntry::new(Reason::FileUnreadable)
+                    .path(path_str)
+                    .note(format!("stat: {e}")),
             );
         }
     };
     let bytes_len = meta.len();
     if bytes_len < REDIRECT_MIN_BYTES {
-        return PassThrough(LogEntry::new(Reason::TooSmall).path(path_str).bytes(bytes_len));
+        return PassThrough(
+            LogEntry::new(Reason::TooSmall)
+                .path(path_str)
+                .bytes(bytes_len),
+        );
     }
     if bytes_len > REDIRECT_MAX_BYTES {
-        return PassThrough(LogEntry::new(Reason::TooLarge).path(path_str).bytes(bytes_len));
+        return PassThrough(
+            LogEntry::new(Reason::TooLarge)
+                .path(path_str)
+                .bytes(bytes_len),
+        );
     }
 
     let source = match fs::read(&path) {
         Ok(b) => b,
         Err(e) => {
             return PassThrough(
-                LogEntry::new(Reason::FileUnreadable).path(path_str).note(format!("read: {e}")),
+                LogEntry::new(Reason::FileUnreadable)
+                    .path(path_str)
+                    .note(format!("read: {e}")),
             );
         }
     };
@@ -168,7 +182,11 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
     //    indirection costs more than it saves (extra file open, header bytes, model
     //    interpretation overhead). Pass through, log, move on.
     let saved = raw_tokens as i64 - view_tokens as i64;
-    let pct = if raw_tokens > 0 { saved * 100 / raw_tokens as i64 } else { 0 };
+    let pct = if raw_tokens > 0 {
+        saved * 100 / raw_tokens as i64
+    } else {
+        0
+    };
     if pct < MIN_REDUCTION_PERCENT {
         return PassThrough(
             LogEntry::new(Reason::WorseThanRaw)
@@ -222,7 +240,10 @@ pub fn decide_with_gate(enabled: bool, evt: &Json) -> ReadDecision {
     if let Some(n) = note {
         entry = entry.note(n);
     }
-    ReadDecision::Redirect { log: entry, redirect_to: cache_path }
+    ReadDecision::Redirect {
+        log: entry,
+        redirect_to: cache_path,
+    }
 }
 
 /// Apply a decision to the PreToolUse event and (when redirecting) print the
@@ -292,7 +313,11 @@ fn is_markdown_path(p: &Path) -> bool {
 ///
 /// Session id is stamped into each block's `.meta` so a later `expand_handle`
 /// attributes the recall to THIS session.
-fn compile_compact(source_path: &Path, bytes: &[u8], store: &Store) -> (String, crate::hash::Handle) {
+fn compile_compact(
+    source_path: &Path,
+    bytes: &[u8],
+    store: &Store,
+) -> (String, crate::hash::Handle) {
     if is_markdown_path(source_path) {
         // pack_doc understands markdown structure (headings, code fences, lists,
         // blockquotes). It puts the WHOLE FILE in the store under one handle and
@@ -339,8 +364,14 @@ fn build_view(source_path: &Path, bytes: &[u8], session_id: &str) -> String {
 
     let mut o = String::new();
     o.push_str("<!-- Knapsack read cache -->\n");
-    o.push_str(&format!("<!-- Original file: {} -->\n", source_path.display()));
-    o.push_str(&format!("<!-- Source digest: sha256={} -->\n", sha256_hex(bytes)));
+    o.push_str(&format!(
+        "<!-- Original file: {} -->\n",
+        source_path.display()
+    ));
+    o.push_str(&format!(
+        "<!-- Source digest: sha256={} -->\n",
+        sha256_hex(bytes)
+    ));
     o.push_str("<!-- This file is a COMPRESSED VIEW. -->\n");
     o.push_str("<!--   Exact original is on disk at the path above. -->\n");
     o.push_str(&format!(
@@ -379,7 +410,8 @@ mod tests {
     use super::*;
 
     fn make_event(file_path: &str, extra: &[(&str, Json)]) -> Json {
-        let mut tool_input: Vec<(String, Json)> = vec![("file_path".into(), Json::Str(file_path.into()))];
+        let mut tool_input: Vec<(String, Json)> =
+            vec![("file_path".into(), Json::Str(file_path.into()))];
         for (k, v) in extra {
             tool_input.push((k.to_string(), v.clone()));
         }

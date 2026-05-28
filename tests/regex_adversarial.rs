@@ -40,7 +40,10 @@ fn within<F: FnOnce() -> bool>(cap: Duration, label: &str, f: F) -> bool {
 fn empty_pattern_matches_empty_input() {
     let re = r("");
     assert!(re.is_match(""), "empty pattern matches empty input");
-    assert!(re.is_match("anything"), "empty pattern matches anywhere (zero-length match)");
+    assert!(
+        re.is_match("anything"),
+        "empty pattern matches anywhere (zero-length match)"
+    );
 }
 
 #[test]
@@ -206,10 +209,21 @@ fn fallback_path_via_caller_keeps_search_usable() {
     // Find the release binary (this test only runs after `cargo build`).
     let bin = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("target")
-        .join(if cfg!(debug_assertions) { "debug" } else { "release" })
-        .join(if cfg!(windows) { "knapsack.exe" } else { "knapsack" });
+        .join(if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        })
+        .join(if cfg!(windows) {
+            "knapsack.exe"
+        } else {
+            "knapsack"
+        });
     if !bin.exists() {
-        eprintln!("skipping fallback integration test: {} not built", bin.display());
+        eprintln!(
+            "skipping fallback integration test: {} not built",
+            bin.display()
+        );
         return;
     }
     // Seed a small payload via `store put`, then grep for a pattern that
@@ -217,9 +231,14 @@ fn fallback_path_via_caller_keeps_search_usable() {
     // recall.rs must fall back to substring matching the LITERAL string
     // `[\D]+`. We use a payload that contains that literal string to confirm
     // the substring fallback works.
-    let dir = std::env::temp_dir().join(format!("kn-regex-fb-{}-{}",
+    let dir = std::env::temp_dir().join(format!(
+        "kn-regex-fb-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let src = dir.join("seed.txt");
     std::fs::write(&src, "line one\nliteral [\\D]+ marker line\nline three\n").unwrap();
@@ -242,8 +261,11 @@ fn fallback_path_via_caller_keeps_search_usable() {
         .stderr(Stdio::piped())
         .output()
         .expect("spawn expand");
-    assert!(exp.status.success(), "expand should succeed via substring fallback; stderr:\n{}",
-        String::from_utf8_lossy(&exp.stderr));
+    assert!(
+        exp.status.success(),
+        "expand should succeed via substring fallback; stderr:\n{}",
+        String::from_utf8_lossy(&exp.stderr)
+    );
     let out = String::from_utf8_lossy(&exp.stdout);
     assert!(
         out.contains("literal [\\D]+ marker line"),
@@ -370,8 +392,14 @@ fn ignore_case_preserves_negated_shorthand_class_semantics() {
     // `\D+` (ignore-case) must still mean "one-or-more non-digit chars",
     // NOT "one-or-more digit chars".
     let non_digit_re = Regex::new_ignore_case("\\D+").unwrap();
-    assert!(non_digit_re.is_match("hello"), "\\D+ must match non-digit runs");
-    assert!(!non_digit_re.is_match("123"), "\\D+ must NOT match digit-only");
+    assert!(
+        non_digit_re.is_match("hello"),
+        "\\D+ must match non-digit runs"
+    );
+    assert!(
+        !non_digit_re.is_match("123"),
+        "\\D+ must NOT match digit-only"
+    );
     // The opposite class still works case-insensitively.
     let digit_re = Regex::new_ignore_case("\\d+").unwrap();
     assert!(digit_re.is_match("123"));
@@ -398,7 +426,10 @@ fn ignore_case_still_lowercases_literal_chars() {
     // the pattern MUST still be lowercased (so `ABC` matches `abc`). Only the
     // char immediately following a `\` is preserved.
     let re = Regex::new_ignore_case("HELLO").unwrap();
-    assert!(re.is_match("hello"), "literal CAPS still lowercased for case-insensitive match");
+    assert!(
+        re.is_match("hello"),
+        "literal CAPS still lowercased for case-insensitive match"
+    );
     assert!(re.is_match("Hello"));
     assert!(re.is_match("HELLO"));
 }
@@ -412,7 +443,10 @@ fn ignore_case_with_mixed_literal_and_escape() {
     let re = Regex::new_ignore_case("ABC\\D+").unwrap();
     assert!(re.is_match("ABCdef"));
     assert!(re.is_match("abcXYZ"));
-    assert!(!re.is_match("ABC123"), "after ABC must be non-digit chars; 123 fails");
+    assert!(
+        !re.is_match("ABC123"),
+        "after ABC must be non-digit chars; 123 fails"
+    );
 }
 
 // ---------- perf / ReDoS guards ----------
@@ -425,7 +459,9 @@ fn redos_a_star_repeated_terminates_quickly() {
     // exponential would blow past this on 20+ a's.
     let pat = "a*a*a*a*a*X";
     let input = "a".repeat(25); // no X — must fail
-    within(Duration::from_secs(2), "ReDoS a*a*a*a*a*", || r(pat).is_match(&input));
+    within(Duration::from_secs(2), "ReDoS a*a*a*a*a*", || {
+        r(pat).is_match(&input)
+    });
 }
 
 #[test]
@@ -461,7 +497,9 @@ fn very_long_input_against_simple_pattern_is_linear() {
     let pat = "needle";
     let input = format!("{}needle{}", "a".repeat(100_000), "b".repeat(100_000));
     let re = r(pat);
-    within(Duration::from_millis(500), "long input", || re.is_match(&input));
+    within(Duration::from_millis(500), "long input", || {
+        re.is_match(&input)
+    });
 }
 
 #[test]

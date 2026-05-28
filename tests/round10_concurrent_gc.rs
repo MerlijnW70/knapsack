@@ -62,8 +62,10 @@ fn ks2_block_just_written_is_not_deleted_by_concurrent_gc_with_threshold_zero() 
     let meta_path = knapsack::meta::meta_path(&block_path);
     assert!(meta_path.exists(), "meta exists after normal put");
     std::fs::remove_file(&meta_path).unwrap();
-    assert!(block_path.exists() && !meta_path.exists(),
-        "simulated race window: block present, meta absent");
+    assert!(
+        block_path.exists() && !meta_path.exists(),
+        "simulated race window: block present, meta absent"
+    );
 
     // Run gc with --older-than 0 (most aggressive setting). The block has
     // mtime ≈ now. Pre-fix behavior: deleted. Post-fix: skipped due to
@@ -74,7 +76,10 @@ fn ks2_block_just_written_is_not_deleted_by_concurrent_gc_with_threshold_zero() 
         store.get(&h).is_some(),
         "ks2_ block freshly written and meta-less must NOT be deleted by gc --older-than 0; \
          gc report: scanned={}, deleted={}, kept={}, meta_missing={}",
-        r.scanned, r.deleted, r.kept, r.meta_missing
+        r.scanned,
+        r.deleted,
+        r.kept,
+        r.meta_missing
     );
     let got = store.get(&h).unwrap();
     assert_eq!(got, payload, "recall remains byte-exact");
@@ -136,7 +141,10 @@ fn pack_output_followed_by_concurrent_gc_threshold_zero_recall_works() {
         });
         match out {
             Some(knapsack::recall::RecallOut::Bytes(b)) => {
-                assert_eq!(b, payload, "if recalled, bytes byte-exact (no wrong-bytes-served)");
+                assert_eq!(
+                    b, payload,
+                    "if recalled, bytes byte-exact (no wrong-bytes-served)"
+                );
             }
             Some(knapsack::recall::RecallOut::Text(_)) => panic!("unexpected Text variant"),
             None => {
@@ -151,8 +159,10 @@ fn pack_output_followed_by_concurrent_gc_threshold_zero_recall_works() {
         let _ = gc_thread.join();
     });
 
-    assert!(!panicked.load(Ordering::Relaxed),
-        "gc must never panic under concurrent expand");
+    assert!(
+        !panicked.load(Ordering::Relaxed),
+        "gc must never panic under concurrent expand"
+    );
 }
 
 // =====================================================================
@@ -244,23 +254,33 @@ fn n_threads_putting_while_m_threads_gcing_no_wrong_bytes_no_panic() {
         stop.store(true, Ordering::Relaxed);
     });
 
-    assert!(!panicked.load(Ordering::Relaxed),
-        "no thread panicked; race-condition free");
-    assert_eq!(put_count.load(Ordering::Relaxed), N_PACKERS * PUTS_PER_PACKER,
-        "every packer completed all its puts");
+    assert!(
+        !panicked.load(Ordering::Relaxed),
+        "no thread panicked; race-condition free"
+    );
+    assert_eq!(
+        put_count.load(Ordering::Relaxed),
+        N_PACKERS * PUTS_PER_PACKER,
+        "every packer completed all its puts"
+    );
     // We don't pin recall_ok/recall_miss exact counts — those are
     // probabilistic under concurrent gc. The invariant is that no recall
     // returned WRONG bytes (asserted inline above).
     let total = recall_ok.load(Ordering::Relaxed) + recall_miss.load(Ordering::Relaxed);
-    assert_eq!(total, N_PACKERS * PUTS_PER_PACKER,
-        "every recall attempt reached a terminal state");
+    assert_eq!(
+        total,
+        N_PACKERS * PUTS_PER_PACKER,
+        "every recall attempt reached a terminal state"
+    );
     // Soft sanity: with the fresh-block safeguard, the vast majority
     // should succeed (we're packing + immediately recalling, much faster
     // than 60s threshold). If <50% succeed, something's wrong.
     let success_rate = recall_ok.load(Ordering::Relaxed) * 100 / total;
-    assert!(success_rate >= 50,
+    assert!(
+        success_rate >= 50,
         "recall success rate {}% — fresh-block safeguard may not be holding",
-        success_rate);
+        success_rate
+    );
 }
 
 // =====================================================================
@@ -313,19 +333,26 @@ fn two_concurrent_gcs_dont_panic_and_dont_double_delete_disk() {
         }
     });
 
-    assert!(!panicked.load(Ordering::Relaxed), "two concurrent gcs panicked");
+    assert!(
+        !panicked.load(Ordering::Relaxed),
+        "two concurrent gcs panicked"
+    );
     // Each gc thread saw at most 50 blocks. Combined deletes can be 50–100
     // depending on race interleaving (Race: both see the same block, both
     // attempt delete, second is a no-op since fs::remove_file silently
     // succeeds on missing files). Counters are approximate per acceptance.
     let combined = combined_deleted.load(Ordering::Relaxed);
-    assert!(combined >= 50 && combined <= 100,
-        "combined deletes in [50, 100]; got {combined} (over-count is OK, under-count not)");
+    assert!(
+        combined >= 50 && combined <= 100,
+        "combined deletes in [50, 100]; got {combined} (over-count is OK, under-count not)"
+    );
 
     // ALL blocks must be gone from disk regardless of count.
     for h in &handles {
-        assert!(store.get(h).is_none(),
-            "cold block {h} survived two concurrent gcs (should have been deleted)");
+        assert!(
+            store.get(h).is_none(),
+            "cold block {h} survived two concurrent gcs (should have been deleted)"
+        );
     }
 }
 
@@ -366,8 +393,15 @@ fn many_threads_putting_same_bytes_converge_to_one_block() {
     // Exactly one block on disk (count by file walk, excluding .meta).
     let expected_h = hash::handle(&payload);
     let recalled = store.get(&expected_h).expect("block resolves");
-    assert_eq!(recalled, payload, "byte-exact recall after concurrent same-byte puts");
-    assert_eq!(store.len(), 1, "exactly one block file across 80 concurrent puts");
+    assert_eq!(
+        recalled, payload,
+        "byte-exact recall after concurrent same-byte puts"
+    );
+    assert_eq!(
+        store.len(),
+        1,
+        "exactly one block file across 80 concurrent puts"
+    );
 }
 
 // =====================================================================
@@ -426,6 +460,12 @@ fn metrics_writes_during_gc_remain_parseable_no_torn_lines() {
 
     // metrics::summary must parse cleanly and return a consistent count.
     let s = metrics::summary();
-    assert_eq!(s.compress_events, 300, "all 300 compress lines landed atomically");
-    assert_eq!(s.expand_calls, 300, "all 300 expand lines landed atomically");
+    assert_eq!(
+        s.compress_events, 300,
+        "all 300 compress lines landed atomically"
+    );
+    assert_eq!(
+        s.expand_calls, 300,
+        "all 300 expand lines landed atomically"
+    );
 }

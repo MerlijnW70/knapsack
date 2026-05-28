@@ -126,7 +126,10 @@ impl LogEntry {
     fn to_json(&self) -> Json {
         let mut obj: Vec<(String, Json)> = vec![
             ("t".into(), Json::Num(self.t as f64)),
-            ("reason".into(), Json::Str(self.reason.as_wire().to_string())),
+            (
+                "reason".into(),
+                Json::Str(self.reason.as_wire().to_string()),
+            ),
         ];
         if let Some(p) = &self.path {
             obj.push(("path".into(), Json::Str(p.clone())));
@@ -174,7 +177,9 @@ pub fn read_last(n: usize) -> Vec<LogEntry> {
 }
 
 pub fn read_last_from(path: &std::path::Path, n: usize) -> Vec<LogEntry> {
-    let Ok(text) = fs::read_to_string(path) else { return Vec::new() };
+    let Ok(text) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
     let parsed: Vec<LogEntry> = text.lines().filter_map(parse_line).collect();
     let start = parsed.len().saturating_sub(n);
     parsed[start..].to_vec()
@@ -190,9 +195,18 @@ fn parse_line(line: &str) -> Option<LogEntry> {
         reason,
         path: v.get("path").and_then(|x| x.as_str()).map(str::to_string),
         bytes: v.get("bytes").and_then(|x| x.as_f64()).map(|n| n as u64),
-        raw_tokens: v.get("raw_tokens").and_then(|x| x.as_f64()).map(|n| n as usize),
-        view_tokens: v.get("view_tokens").and_then(|x| x.as_f64()).map(|n| n as usize),
-        redirect_to: v.get("redirect_to").and_then(|x| x.as_str()).map(str::to_string),
+        raw_tokens: v
+            .get("raw_tokens")
+            .and_then(|x| x.as_f64())
+            .map(|n| n as usize),
+        view_tokens: v
+            .get("view_tokens")
+            .and_then(|x| x.as_f64())
+            .map(|n| n as usize),
+        redirect_to: v
+            .get("redirect_to")
+            .and_then(|x| x.as_str())
+            .map(str::to_string),
         note: v.get("note").and_then(|x| x.as_str()).map(str::to_string),
     })
 }
@@ -217,7 +231,10 @@ fn parse_reason(s: &str) -> Option<Reason> {
 }
 
 fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Path of the default log — exposed for the `why-last` debug command and tests.
@@ -259,7 +276,12 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let p = dir.join("log.jsonl");
-        for r in [Reason::TooSmall, Reason::GateDisabled, Reason::RedirectEmitted, Reason::WorseThanRaw] {
+        for r in [
+            Reason::TooSmall,
+            Reason::GateDisabled,
+            Reason::RedirectEmitted,
+            Reason::WorseThanRaw,
+        ] {
             write_to(&p, &LogEntry::new(r));
         }
         let tail = read_last_from(&p, 2);
@@ -277,7 +299,11 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let p = dir.join("log.jsonl");
-        fs::write(&p, "{\"t\":1,\"reason\":\"future-reason\"}\n{\"t\":2,\"reason\":\"too-small\"}\n").unwrap();
+        fs::write(
+            &p,
+            "{\"t\":1,\"reason\":\"future-reason\"}\n{\"t\":2,\"reason\":\"too-small\"}\n",
+        )
+        .unwrap();
         let back = read_last_from(&p, 10);
         assert_eq!(back.len(), 1, "only the known-reason line survives");
         assert_eq!(back[0].reason, Reason::TooSmall);

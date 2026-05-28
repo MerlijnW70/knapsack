@@ -13,8 +13,16 @@ use knapsack::Store;
 use std::path::{Path, PathBuf};
 
 fn store_dir(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    std::env::temp_dir().join(format!("knapsack-storemeta-{}-{}-{}", tag, std::process::id(), t))
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "knapsack-storemeta-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ))
 }
 
 /// Walk the shard layout and return every file in it (blocks AND .meta sidecars).
@@ -50,14 +58,29 @@ fn valid_ks2_round_trip_writes_meta_and_recalls_byte_exact() {
     assert!(h.starts_with("ks2_"), "new writes are ks2_");
     let block = walk_for(&dir, &h).expect("block file landed on disk");
     let m = meta::meta_path(&block);
-    assert!(m.exists(), "ks2 writes must produce a .meta sidecar at {}", m.display());
+    assert!(
+        m.exists(),
+        "ks2 writes must produce a .meta sidecar at {}",
+        m.display()
+    );
 
     let parsed = meta::read(&m).expect(".meta is parseable JSON");
     assert_eq!(parsed.len, bytes.len() as u64, "len matches");
-    assert_eq!(parsed.sha256, knapsack::sha256::sha256_hex(bytes), "full SHA-256 stored");
-    assert!(parsed.created_at > 0 && parsed.last_accessed >= parsed.created_at, "timestamps populated");
+    assert_eq!(
+        parsed.sha256,
+        knapsack::sha256::sha256_hex(bytes),
+        "full SHA-256 stored"
+    );
+    assert!(
+        parsed.created_at > 0 && parsed.last_accessed >= parsed.created_at,
+        "timestamps populated"
+    );
 
-    assert_eq!(s.get(&h).as_deref(), Some(bytes.as_ref()), "recall byte-exact");
+    assert_eq!(
+        s.get(&h).as_deref(),
+        Some(bytes.as_ref()),
+        "recall byte-exact"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -72,7 +95,10 @@ fn corrupted_block_with_valid_meta_fails_recall() {
     let block = walk_for(&dir, &h).expect("block exists");
     std::fs::write(&block, b"TAMPERED").unwrap();
 
-    assert!(s.get(&h).is_none(), "tampered bytes vs intact meta -> None, never wrong bytes");
+    assert!(
+        s.get(&h).is_none(),
+        "tampered bytes vs intact meta -> None, never wrong bytes"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -111,10 +137,17 @@ fn missing_metadata_falls_back_to_truncated_prefix_verify() {
     std::fs::remove_file(&mp).unwrap();
     assert!(!mp.exists(), "meta gone");
 
-    assert_eq!(s.get(&h).as_deref(), Some(bytes.as_ref()), "no meta -> falls back to hash::verify, still byte-exact");
+    assert_eq!(
+        s.get(&h).as_deref(),
+        Some(bytes.as_ref()),
+        "no meta -> falls back to hash::verify, still byte-exact"
+    );
     // And corrupting the bytes still fails through the fallback path.
     std::fs::write(&block, b"TAMPERED no-meta").unwrap();
-    assert!(s.get(&h).is_none(), "no meta + bad bytes -> None via fallback verify");
+    assert!(
+        s.get(&h).is_none(),
+        "no meta + bad bytes -> None via fallback verify"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -134,8 +167,15 @@ fn legacy_ks_handles_still_expand_without_meta() {
     std::fs::create_dir_all(&shard_dir).unwrap();
     std::fs::write(shard_dir.join(&legacy_handle), bytes).unwrap();
 
-    assert_eq!(s.get(&legacy_handle).as_deref(), Some(bytes.as_ref()), "legacy handle still resolves byte-exact");
-    assert!(!meta::meta_path(&shard_dir.join(&legacy_handle)).exists(), "legacy stays meta-free");
+    assert_eq!(
+        s.get(&legacy_handle).as_deref(),
+        Some(bytes.as_ref()),
+        "legacy handle still resolves byte-exact"
+    );
+    assert!(
+        !meta::meta_path(&shard_dir.join(&legacy_handle)).exists(),
+        "legacy stays meta-free"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -148,13 +188,19 @@ fn gc_removes_block_and_meta_as_a_pair() {
     let h = s.put(bytes);
     let block = walk_for(&dir, &h).expect("block");
     let mp = meta::meta_path(&block);
-    assert!(block.exists() && mp.exists(), "both block and meta exist pre-gc");
+    assert!(
+        block.exists() && mp.exists(),
+        "both block and meta exist pre-gc"
+    );
 
     // older_than=0 → everything older than 0 seconds (i.e. everything) is stale.
     let r = gc_run(&s, 0, false);
     assert_eq!(r.deleted, 1, "deleted exactly the one block");
     assert!(!block.exists(), "block file gone after gc");
-    assert!(!mp.exists(), "meta sidecar gone after gc — never half a pair");
+    assert!(
+        !mp.exists(),
+        "meta sidecar gone after gc — never half a pair"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -245,7 +291,11 @@ fn meta_from_bytes_carries_full_sha256_not_truncated() {
     assert_eq!(m.sha256.len(), 64, "full SHA-256 = 64 hex chars");
     assert_eq!(m.sha256, knapsack::sha256::sha256_hex(bytes));
     let h = handle(bytes);
-    assert_eq!(h.strip_prefix("ks2_").unwrap(), &m.sha256[..32], "handle is the 32-hex prefix of the same digest");
+    assert_eq!(
+        h.strip_prefix("ks2_").unwrap(),
+        &m.sha256[..32],
+        "handle is the 32-hex prefix of the same digest"
+    );
 }
 
 /// Helper: walk the sharded layout to find the file named `handle`. Tests need this

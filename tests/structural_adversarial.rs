@@ -14,7 +14,10 @@ use knapsack::structural;
 use std::path::PathBuf;
 
 fn tmpstore(tag: &str) -> Store {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let dir = std::env::temp_dir().join(format!("kn-sa-{}-{}-{}", tag, std::process::id(), t));
     Store::new(dir)
 }
@@ -24,8 +27,8 @@ fn pack_and_reconstruct(bytes: &[u8], ct: ContentType, tag: &str) {
     let mut ledger = Ledger::in_memory();
     let _r = pack(bytes, ct, &store, &mut ledger, 0);
     if !bytes.is_empty() {
-        let back = reconstruct(bytes, ct, &store)
-            .expect(&format!("{tag}: reconstruct must return Some"));
+        let back =
+            reconstruct(bytes, ct, &store).expect(&format!("{tag}: reconstruct must return Some"));
         assert_eq!(back, bytes, "{tag}: reconstruct must be byte-exact");
     }
 }
@@ -331,6 +334,7 @@ fn tiny_inputs_emit_raw_bytes_view() {
     assert!(
         r.shown_tokens_est <= raw,
         "shown ({}) must not exceed raw ({}) for tiny inputs — never-worse-than-raw guard",
-        r.shown_tokens_est, raw
+        r.shown_tokens_est,
+        raw
     );
 }

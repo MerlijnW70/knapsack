@@ -4,8 +4,16 @@ use std::fs;
 use std::path::PathBuf;
 
 fn tmp(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    std::env::temp_dir().join(format!("knapsack-test-{}-{}-{}", tag, std::process::id(), t))
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "knapsack-test-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ))
 }
 
 #[test]
@@ -30,7 +38,10 @@ fn identical_content_dedups() {
     let store = Store::new(tmp("dedup"));
     let h1 = store.put(b"same bytes");
     let h2 = store.put(b"same bytes");
-    assert_eq!(h1, h2, "content-addressed: identical bytes -> identical handle");
+    assert_eq!(
+        h1, h2,
+        "content-addressed: identical bytes -> identical handle"
+    );
 }
 
 // ---- sharded layout + backward-compatible read fallback ----
@@ -42,8 +53,15 @@ fn new_writes_are_sharded_and_roundtrip() {
     let bytes = b"sharded content\nline two\n";
     let h = store.put(bytes);
     // New writes must NOT land in the flat root; they go under a shard subdir.
-    assert!(!dir.join(&h).exists(), "new write must not be at the flat path");
-    assert_eq!(store.get(&h).as_deref(), Some(&bytes[..]), "sharded write must read back byte-exact");
+    assert!(
+        !dir.join(&h).exists(),
+        "new write must not be at the flat path"
+    );
+    assert_eq!(
+        store.get(&h).as_deref(),
+        Some(&bytes[..]),
+        "sharded write must read back byte-exact"
+    );
 }
 
 #[test]
@@ -55,7 +73,11 @@ fn legacy_flat_files_still_read() {
     // Simulate a store written by a pre-sharding version: a file directly in the root.
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join(&h), bytes).unwrap();
-    assert_eq!(store.get(&h).as_deref(), Some(&bytes[..]), "must fall back to the legacy flat path");
+    assert_eq!(
+        store.get(&h).as_deref(),
+        Some(&bytes[..]),
+        "must fall back to the legacy flat path"
+    );
 }
 
 #[test]
@@ -64,15 +86,21 @@ fn sharded_wins_when_both_exist() {
     let store = Store::new(dir.clone());
     let bytes = b"canonical sharded bytes";
     let h = store.put(bytes); // sharded
-    // Drop a DIFFERENT flat file under the same handle to lock the precedence rule.
+                              // Drop a DIFFERENT flat file under the same handle to lock the precedence rule.
     fs::write(dir.join(&h), b"STALE FLAT").unwrap();
-    assert_eq!(store.get(&h).as_deref(), Some(&bytes[..]), "sharded copy must deterministically win");
+    assert_eq!(
+        store.get(&h).as_deref(),
+        Some(&bytes[..]),
+        "sharded copy must deterministically win"
+    );
 }
 
 #[test]
 fn concurrent_puts_are_byte_exact() {
     let store = Store::new(tmp("conc"));
-    let blocks: Vec<Vec<u8>> = (0..300).map(|i| format!("concurrent block #{i}\nwith a second line\n").into_bytes()).collect();
+    let blocks: Vec<Vec<u8>> = (0..300)
+        .map(|i| format!("concurrent block #{i}\nwith a second line\n").into_bytes())
+        .collect();
     // 8 threads all storing the SAME blocks -> heavy contention on identical sharded paths.
     std::thread::scope(|s| {
         for _ in 0..8 {
@@ -85,6 +113,10 @@ fn concurrent_puts_are_byte_exact() {
         }
     });
     for b in &blocks {
-        assert_eq!(store.get(&handle(b)).as_deref(), Some(b.as_slice()), "concurrent writes corrupted a block");
+        assert_eq!(
+            store.get(&handle(b)).as_deref(),
+            Some(b.as_slice()),
+            "concurrent writes corrupted a block"
+        );
     }
 }

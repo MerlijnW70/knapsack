@@ -17,8 +17,16 @@ use knapsack::token_estimate::tokens_bytes;
 use std::path::PathBuf;
 
 fn store(tag: &str) -> Store {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    Store::new(std::env::temp_dir().join(format!("knapsack-json-{}-{}-{}", tag, std::process::id(), t)))
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    Store::new(std::env::temp_dir().join(format!(
+        "knapsack-json-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    )))
 }
 
 /// A reasonably-sized package.json, prettified. The dependencies block is ~600 bytes —
@@ -133,9 +141,18 @@ fn split_json_tiles_cover_input_byte_exact() {
             continue;
         }
         assert_eq!(tiles.first().map(|t| t.0), Some(0), "tiles start at 0");
-        assert_eq!(tiles.last().map(|t| t.1), Some(bytes.len()), "tiles end at len");
+        assert_eq!(
+            tiles.last().map(|t| t.1),
+            Some(bytes.len()),
+            "tiles end at len"
+        );
         for w in tiles.windows(2) {
-            assert_eq!(w[0].1, w[1].0, "no gap/overlap between tiles for input of {} bytes", bytes.len());
+            assert_eq!(
+                w[0].1,
+                w[1].0,
+                "no gap/overlap between tiles for input of {} bytes",
+                bytes.len()
+            );
         }
         // And byte-exact concatenation
         let mut rejoined = Vec::with_capacity(bytes.len());
@@ -153,16 +170,20 @@ fn malformed_json_returns_single_tile() {
         b"{ this isn't json",
         b"\"just a top-level string\"",
         b"42",
-        b"[1, 2,",                                 // unterminated
-        b"{\"a\":\"unterminated string",          // unterminated string
-        b"",                                       // empty -> Vec::new()
+        b"[1, 2,",                       // unterminated
+        b"{\"a\":\"unterminated string", // unterminated string
+        b"",                             // empty -> Vec::new()
     ];
     for input in cases {
         let tiles = split_json(input);
         if input.is_empty() {
             assert!(tiles.is_empty(), "empty -> no tiles");
         } else {
-            assert!(tiles.len() == 1 || tiles_cover(input.len(), &tiles), "single-tile fallback or full cover: {:?}", tiles);
+            assert!(
+                tiles.len() == 1 || tiles_cover(input.len(), &tiles),
+                "single-tile fallback or full cover: {:?}",
+                tiles
+            );
         }
     }
 }
@@ -178,8 +199,14 @@ fn tiles_cover(len: usize, tiles: &[(usize, usize)]) -> bool {
 fn split_blocks_dispatches_to_json_path() {
     let bytes = package_json_fixture();
     let blocks = split_blocks(&bytes, ContentType::Json);
-    assert!(blocks.len() >= 5, "package.json must split into multiple member tiles");
-    assert!(tiles_cover(bytes.len(), &blocks), "JSON tiles must tile the input exactly");
+    assert!(
+        blocks.len() >= 5,
+        "package.json must split into multiple member tiles"
+    );
+    assert!(
+        tiles_cover(bytes.len(), &blocks),
+        "JSON tiles must tile the input exactly"
+    );
 }
 
 // ---------- the brief's five test cases ----------
@@ -235,8 +262,13 @@ fn invalid_json_falls_back_safely() {
     let mut ledger = Ledger::in_memory();
     let bad = b"{ this fragment is not json at all }".to_vec();
     let r = pack(&bad, ContentType::Json, &s, &mut ledger, 0);
-    assert_eq!(r.shown_tokens_est, tokens_bytes(&bad), "malformed JSON falls through to verbatim");
-    let back = reconstruct(&bad, ContentType::Json, &s).expect("reconstruct OK on invalid JSON too");
+    assert_eq!(
+        r.shown_tokens_est,
+        tokens_bytes(&bad),
+        "malformed JSON falls through to verbatim"
+    );
+    let back =
+        reconstruct(&bad, ContentType::Json, &s).expect("reconstruct OK on invalid JSON too");
     assert_eq!(back, bad, "byte-exact reconstruct after fallback");
 }
 
@@ -275,7 +307,10 @@ fn secrets_in_json_are_not_logged_anywhere_new() {
     let s_dir = std::env::temp_dir().join(format!(
         "knapsack-json-secrets-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
     ));
     let metrics_path = s_dir.join("metrics.jsonl");
     let read_log_path = s_dir.join("read_hook.jsonl");
@@ -291,10 +326,18 @@ fn secrets_in_json_are_not_logged_anywhere_new() {
 
     // The metrics file (if any) must not contain the secret.
     if let Ok(text) = fs::read_to_string(&metrics_path) {
-        assert!(!text.contains(secret), "secret leaked into metrics.jsonl:\n{}", text);
+        assert!(
+            !text.contains(secret),
+            "secret leaked into metrics.jsonl:\n{}",
+            text
+        );
     }
     if let Ok(text) = fs::read_to_string(&read_log_path) {
-        assert!(!text.contains(secret), "secret leaked into read_hook.jsonl:\n{}", text);
+        assert!(
+            !text.contains(secret),
+            "secret leaked into read_hook.jsonl:\n{}",
+            text
+        );
     }
     let _ = fs::remove_dir_all(&s_dir);
 }
@@ -321,7 +364,10 @@ fn cold_pass_view_marks_large_members_with_key_name() {
         r.view
     );
     // And small fields stay verbatim.
-    assert!(r.view.contains("\"version\": \"0.0.1\""), "small fields kept verbatim");
+    assert!(
+        r.view.contains("\"version\": \"0.0.1\""),
+        "small fields kept verbatim"
+    );
     assert!(r.view.contains("\"name\": \"knapsack-test\""));
 }
 
@@ -354,7 +400,12 @@ fn reconstruct_is_byte_exact_for_json_pack() {
     for fixture in [package_json_fixture(), api_response_fixture()] {
         let _ = pack(&fixture, ContentType::Json, &s, &mut ledger, 0);
         let back = reconstruct(&fixture, ContentType::Json, &s).expect("reconstruct");
-        assert_eq!(back, fixture, "byte-exact for fixture of {} bytes", fixture.len());
+        assert_eq!(
+            back,
+            fixture,
+            "byte-exact for fixture of {} bytes",
+            fixture.len()
+        );
     }
 }
 

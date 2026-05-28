@@ -46,30 +46,27 @@ fn write_transcript(p: &Path, lines: &[&str]) {
 fn scanner_cascade_clear_then_compaction_then_restart_only_latest_wins() {
     let sb = EnvSandbox::new("tx-cascade");
     let p = sb.join("cascade.jsonl");
-    write_transcript(&p, &[
-        // Pre-clear noise: handles that MUST NOT end up resident.
-        r#"{"role":"user","content":"first message"}"#,
-        r#"{"role":"assistant","content":"see [Knapsack: 10 lines · recall ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]"}"#,
-
-        // BOUNDARY 1: /clear
-        r#"{"role":"user","content":"/clear"}"#,
-
-        // Post-clear, pre-compaction: also MUST NOT be resident (cleared again later).
-        r#"{"role":"assistant","content":"after clear, see ks2_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}"#,
-
-        // BOUNDARY 2: compaction
-        r#"{"type":"compact","when":1234567890}"#,
-
-        // Post-compaction, pre-restart: also MUST NOT be resident.
-        r#"{"role":"assistant","content":"after compact, see ks2_cccccccccccccccccccccccccccccccc"}"#,
-
-        // BOUNDARY 3: session restart (the latest boundary)
-        r#"{"type":"session_restart","when":1234567899}"#,
-
-        // Post-restart: THESE are the only handles that should be resident.
-        r#"{"role":"assistant","content":"final state, ks2_dddddddddddddddddddddddddddddddd is alive"}"#,
-        r#"{"role":"assistant","content":"and so is ks2_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}"#,
-    ]);
+    write_transcript(
+        &p,
+        &[
+            // Pre-clear noise: handles that MUST NOT end up resident.
+            r#"{"role":"user","content":"first message"}"#,
+            r#"{"role":"assistant","content":"see [Knapsack: 10 lines · recall ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]"}"#,
+            // BOUNDARY 1: /clear
+            r#"{"role":"user","content":"/clear"}"#,
+            // Post-clear, pre-compaction: also MUST NOT be resident (cleared again later).
+            r#"{"role":"assistant","content":"after clear, see ks2_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}"#,
+            // BOUNDARY 2: compaction
+            r#"{"type":"compact","when":1234567890}"#,
+            // Post-compaction, pre-restart: also MUST NOT be resident.
+            r#"{"role":"assistant","content":"after compact, see ks2_cccccccccccccccccccccccccccccccc"}"#,
+            // BOUNDARY 3: session restart (the latest boundary)
+            r#"{"type":"session_restart","when":1234567899}"#,
+            // Post-restart: THESE are the only handles that should be resident.
+            r#"{"role":"assistant","content":"final state, ks2_dddddddddddddddddddddddddddddddd is alive"}"#,
+            r#"{"role":"assistant","content":"and so is ks2_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}"#,
+        ],
+    );
 
     let r = transcript::scan(&p);
     assert!(r.ok, "scanner runs to completion");
@@ -82,12 +79,18 @@ fn scanner_cascade_clear_then_compaction_then_restart_only_latest_wins() {
     // Resident set is exactly {d…, e…}. The a/b/c handles were all wiped.
     assert!(r.resident.contains("ks2_dddddddddddddddddddddddddddddddd"));
     assert!(r.resident.contains("ks2_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"));
-    assert!(!r.resident.contains("ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-        "pre-clear handle MUST NOT be resident");
-    assert!(!r.resident.contains("ks2_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
-        "pre-compaction handle MUST NOT be resident");
-    assert!(!r.resident.contains("ks2_cccccccccccccccccccccccccccccccc"),
-        "pre-restart handle MUST NOT be resident");
+    assert!(
+        !r.resident.contains("ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        "pre-clear handle MUST NOT be resident"
+    );
+    assert!(
+        !r.resident.contains("ks2_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        "pre-compaction handle MUST NOT be resident"
+    );
+    assert!(
+        !r.resident.contains("ks2_cccccccccccccccccccccccccccccccc"),
+        "pre-restart handle MUST NOT be resident"
+    );
     assert_eq!(r.resident.len(), 2);
 }
 
@@ -103,17 +106,22 @@ fn scanner_picks_up_handles_buried_in_realistic_tool_use_envelope() {
     // survive any reasonable JSON encoding.
     let sb = EnvSandbox::new("tx-realistic-shape");
     let p = sb.join("realistic.jsonl");
-    write_transcript(&p, &[
-        r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"run the tests"}]}}"#,
-        r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"cargo test"}}]}}"#,
-        // tool_result with a knapsack view in the text — handle embedded in inner JSON
-        r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"[knapsack 5240->420 tok · 14 blocks · 12 unchanged]\n[unchanged · recall ks2_11112222333344445555666677778888]\nfailing test details here\n[unchanged · recall ks2_aaaabbbbccccddddeeeeffff00001111]"}]}}"#,
-    ]);
+    write_transcript(
+        &p,
+        &[
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"run the tests"}]}}"#,
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"cargo test"}}]}}"#,
+            // tool_result with a knapsack view in the text — handle embedded in inner JSON
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"[knapsack 5240->420 tok · 14 blocks · 12 unchanged]\n[unchanged · recall ks2_11112222333344445555666677778888]\nfailing test details here\n[unchanged · recall ks2_aaaabbbbccccddddeeeeffff00001111]"}]}}"#,
+        ],
+    );
     let r = transcript::scan(&p);
     assert!(r.ok);
     assert!(r.last_boundary.is_none(), "no boundary in this transcript");
-    assert!(r.resident.contains("ks2_11112222333344445555666677778888"),
-        "handle inside tool_result text is detected");
+    assert!(
+        r.resident.contains("ks2_11112222333344445555666677778888"),
+        "handle inside tool_result text is detected"
+    );
     assert!(r.resident.contains("ks2_aaaabbbbccccddddeeeeffff00001111"));
     assert_eq!(r.resident.len(), 2);
 }
@@ -134,7 +142,8 @@ fn scanner_handles_long_transcript_under_one_second() {
             writeln!(
                 f,
                 r#"{{"role":"assistant","content":"line {i}: recall {h}"}}"#
-            ).unwrap();
+            )
+            .unwrap();
         } else {
             writeln!(f, r#"{{"role":"assistant","content":"line {i}: routine"}}"#).unwrap();
         }
@@ -143,9 +152,16 @@ fn scanner_handles_long_transcript_under_one_second() {
     let start = std::time::Instant::now();
     let r = transcript::scan(&p);
     let elapsed = start.elapsed();
-    assert!(elapsed.as_secs() < 1, "2000-line scan took {elapsed:?}, target < 1 s");
+    assert!(
+        elapsed.as_secs() < 1,
+        "2000-line scan took {elapsed:?}, target < 1 s"
+    );
     assert!(r.ok);
-    assert_eq!(r.resident.len(), 20, "found exactly 20 sprinkled handles (every 100/2000)");
+    assert_eq!(
+        r.resident.len(),
+        20,
+        "found exactly 20 sprinkled handles (every 100/2000)"
+    );
 }
 
 #[test]
@@ -161,10 +177,7 @@ fn scanner_long_transcript_with_boundary_late_drops_pre_boundary_handles() {
             writeln!(f, r#"{{"role":"user","content":"/clear"}}"#).unwrap();
         } else if i.is_multiple_of(50) {
             let h = format!("ks2_{:032x}", i);
-            writeln!(
-                f,
-                r#"{{"role":"assistant","content":"recall {h}"}}"#
-            ).unwrap();
+            writeln!(f, r#"{{"role":"assistant","content":"recall {h}"}}"#).unwrap();
         } else {
             writeln!(f, r#"{{"role":"assistant","content":"line {i}"}}"#).unwrap();
         }
@@ -172,7 +185,10 @@ fn scanner_long_transcript_with_boundary_late_drops_pre_boundary_handles() {
     drop(f);
     let r = transcript::scan(&p);
     assert!(r.ok);
-    assert_eq!(r.last_boundary.map(|(b, _)| b), Some(transcript::Boundary::Clear));
+    assert_eq!(
+        r.last_boundary.map(|(b, _)| b),
+        Some(transcript::Boundary::Clear)
+    );
     // Handles at i=0,50,100,…,750 (16 handles) are pre-clear → dropped.
     // Handles at i=850,900,950 are post-clear → resident.
     assert_eq!(
@@ -183,8 +199,10 @@ fn scanner_long_transcript_with_boundary_late_drops_pre_boundary_handles() {
     assert!(r.resident.contains(&format!("ks2_{:032x}", 850)));
     assert!(r.resident.contains(&format!("ks2_{:032x}", 900)));
     assert!(r.resident.contains(&format!("ks2_{:032x}", 950)));
-    assert!(!r.resident.contains(&format!("ks2_{:032x}", 750)),
-        "pre-clear handle must be dropped");
+    assert!(
+        !r.resident.contains(&format!("ks2_{:032x}", 750)),
+        "pre-clear handle must be dropped"
+    );
 }
 
 // =====================================================================
@@ -213,7 +231,12 @@ fn end_to_end_pack_then_clear_then_repack_does_not_dangle_backref() {
     // must NOT fire.
     let empty: HashSet<String> = HashSet::new();
     let warm_empty_tx = pack_with_transcript(
-        &payload, ContentType::Log, &store, &mut ledger, 1, Some(&empty),
+        &payload,
+        ContentType::Log,
+        &store,
+        &mut ledger,
+        1,
+        Some(&empty),
     );
     assert_eq!(
         warm_empty_tx.delta_hits, 0,
@@ -221,9 +244,7 @@ fn end_to_end_pack_then_clear_then_repack_does_not_dangle_backref() {
     );
 
     // Sanity: warm pack WITHOUT a transcript (ledger-only) DOES fire backrefs.
-    let warm_no_tx = pack_with_transcript(
-        &payload, ContentType::Log, &store, &mut ledger, 2, None,
-    );
+    let warm_no_tx = pack_with_transcript(&payload, ContentType::Log, &store, &mut ledger, 2, None);
     assert!(
         warm_no_tx.delta_hits > 0,
         "warm pack with no transcript falls back to ledger-only → delta hits"
@@ -248,11 +269,19 @@ fn end_to_end_pack_with_full_transcript_match_emits_backref() {
 
     // The block-level handles the residency gate keys off.
     let transcript_resident: HashSet<String> = cold.handles.iter().cloned().collect();
-    assert!(!transcript_resident.is_empty(), "cold pack must produce at least one block handle");
+    assert!(
+        !transcript_resident.is_empty(),
+        "cold pack must produce at least one block handle"
+    );
 
     // Warm pack with transcript naming the same block handles → delta hits fire
     let warm = pack_with_transcript(
-        &payload, ContentType::Log, &store, &mut ledger, 1, Some(&transcript_resident),
+        &payload,
+        ContentType::Log,
+        &store,
+        &mut ledger,
+        1,
+        Some(&transcript_resident),
     );
     assert!(
         warm.delta_hits > 0,
@@ -289,11 +318,14 @@ fn pack_output_with_real_transcript_file_path_drops_post_clear_dangle() {
     // empty post-clear means no handles are resident. Save it where
     // pack_output can find it.
     let transcript_path = _sb.join("session.jsonl");
-    write_transcript(&transcript_path, &[
-        r#"{"role":"assistant","content":"some early text"}"#,
-        r#"{"role":"user","content":"/clear"}"#,
-        r#"{"role":"assistant","content":"empty after clear"}"#,
-    ]);
+    write_transcript(
+        &transcript_path,
+        &[
+            r#"{"role":"assistant","content":"some early text"}"#,
+            r#"{"role":"user","content":"/clear"}"#,
+            r#"{"role":"assistant","content":"empty after clear"}"#,
+        ],
+    );
 
     // Warm pack WITH this transcript: ledger says resident, transcript says
     // empty post-/clear → no backrefs.

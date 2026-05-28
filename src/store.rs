@@ -32,14 +32,23 @@ pub struct Store {
 
 fn sanitize(h: &str) -> String {
     h.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
 impl Store {
     pub fn new(dir: PathBuf) -> Self {
         let _ = fs::create_dir_all(&dir);
-        Store { dir, session_id: None }
+        Store {
+            dir,
+            session_id: None,
+        }
     }
 
     /// Same as `new`, but every block written through this Store stamps the given
@@ -48,7 +57,10 @@ impl Store {
     /// originally compressed each block and attribute the recall there.
     pub fn with_session(dir: PathBuf, session_id: &str) -> Self {
         let _ = fs::create_dir_all(&dir);
-        Store { dir, session_id: Some(session_id.to_string()) }
+        Store {
+            dir,
+            session_id: Some(session_id.to_string()),
+        }
     }
 
     fn path(&self, h: &str) -> PathBuf {
@@ -60,7 +72,10 @@ impl Store {
         // by the same two hex chars of the underlying hash, just from different
         // algorithms. A handle with no `_` (malformed) falls into bucket "00".
         let hash_start = s.find('_').map(|i| i + 1).unwrap_or(0);
-        let shard = s.get(hash_start..hash_start + 2).map(str::to_owned).unwrap_or_else(|| "00".into());
+        let shard = s
+            .get(hash_start..hash_start + 2)
+            .map(str::to_owned)
+            .unwrap_or_else(|| "00".into());
         self.dir.join(shard).join(s)
     }
 
@@ -170,7 +185,10 @@ impl Store {
         for shard in shards {
             let _ = fs::create_dir_all(self.dir.join(shard));
         }
-        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(blocks.len());
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(blocks.len());
         let chunk = handles.len().div_ceil(threads);
         let this = self; // shared, Sync borrow so each thread reuses the same path() logic
         std::thread::scope(|scope| {
@@ -265,9 +283,8 @@ impl Store {
         let Ok(top) = fs::read_dir(&self.dir) else {
             return 0;
         };
-        let is_block = |p: &Path| -> bool {
-            p.extension().and_then(|x| x.to_str()) != Some("meta")
-        };
+        let is_block =
+            |p: &Path| -> bool { p.extension().and_then(|x| x.to_str()) != Some("meta") };
         let mut n = 0;
         for e in top.flatten() {
             let p = e.path();

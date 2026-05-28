@@ -5,8 +5,16 @@ use knapsack::{handle, pack, reconstruct, Ledger, Store};
 use std::path::PathBuf;
 
 fn tmp(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    std::env::temp_dir().join(format!("knapsack-test-{}-{}-{}", tag, std::process::id(), t))
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "knapsack-test-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ))
 }
 
 fn file(edited: usize) -> String {
@@ -39,7 +47,10 @@ fn reread_after_edit_mostly_references() {
         r2.delta_hits,
         r2.blocks
     );
-    assert!(r2.shown_tokens_est * 3 < r1.shown_tokens_est, "the re-read should be far cheaper than the first read");
+    assert!(
+        r2.shown_tokens_est * 3 < r1.shown_tokens_est,
+        "the re-read should be far cheaper than the first read"
+    );
 }
 
 #[test]
@@ -57,7 +68,12 @@ fn evicted_block_is_resent_not_referenced() {
     ledger.evict(&handle(&v.as_bytes()[s..e]));
     let after = pack(v.as_bytes(), ContentType::Code, &store, &mut ledger, 2).delta_hits;
 
-    assert!(after < full_hits, "evicting a block must reduce references (was {}, now {})", full_hits, after);
+    assert!(
+        after < full_hits,
+        "evicting a block must reduce references (was {}, now {})",
+        full_hits,
+        after
+    );
 }
 
 // Regression for the dogfood finding: a `cargo test` run after an edit gains a
@@ -90,5 +106,9 @@ fn log_dedup_survives_inserted_header() {
     );
 
     let back = reconstruct(b.as_bytes(), ContentType::Log, &store).expect("all blocks present");
-    assert_eq!(back, b.as_bytes(), "reconstruction stays byte-exact under the new boundaries");
+    assert_eq!(
+        back,
+        b.as_bytes(),
+        "reconstruction stays byte-exact under the new boundaries"
+    );
 }

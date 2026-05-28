@@ -53,8 +53,11 @@ fn store_put_to_broken_dir_returns_handle_but_get_returns_none() {
     let payload = b"some bytes that will never make it to disk";
     let h = store.put(payload);
     assert!(h.starts_with("ks2_"), "handle still computed");
-    assert_eq!(store.get(&h), None,
-        "broken store must NOT serve recalled bytes (would be a false positive)");
+    assert_eq!(
+        store.get(&h),
+        None,
+        "broken store must NOT serve recalled bytes (would be a false positive)"
+    );
 }
 
 #[test]
@@ -88,8 +91,10 @@ fn pack_output_on_broken_store_succeeds_in_view_recall_returns_none() {
         context: 0,
         session_id: "broken".into(),
     });
-    assert!(out.is_none(),
-        "broken store -> expand returns None (no false-positive recall)");
+    assert!(
+        out.is_none(),
+        "broken store -> expand returns None (no false-positive recall)"
+    );
 }
 
 #[test]
@@ -107,7 +112,10 @@ fn block_persisted_but_meta_write_fails_get_still_byte_exact() {
     let hash_start = h.find('_').unwrap() + 1;
     let shard = &h[hash_start..hash_start + 2];
     let block_path = sb.join("store").join(shard).join(&h);
-    assert!(block_path.exists(), "block must exist before meta-loss simulation");
+    assert!(
+        block_path.exists(),
+        "block must exist before meta-loss simulation"
+    );
     let meta_path = meta::meta_path(&block_path);
     if meta_path.exists() {
         std::fs::remove_file(&meta_path).unwrap();
@@ -115,7 +123,10 @@ fn block_persisted_but_meta_write_fails_get_still_byte_exact() {
     // Now meta is gone but the block remains. get() must use hash-only
     // verification and return the bytes byte-exact.
     let recalled = store.get(&h).expect("hash-only path must still resolve");
-    assert_eq!(recalled, payload, "byte-exact recall via hash commitment alone");
+    assert_eq!(
+        recalled, payload,
+        "byte-exact recall via hash commitment alone"
+    );
 }
 
 #[test]
@@ -145,13 +156,17 @@ fn block_persisted_but_meta_lies_get_rejects() {
     let lie_sha = knapsack::sha256::sha256_hex(&lie);
     let lying_meta = format!(
         r#"{{"sha256":"{}","len":{},"created":0,"accessed":0}}"#,
-        lie_sha, payload.len()
+        lie_sha,
+        payload.len()
     );
     std::fs::write(&meta_path, lying_meta).unwrap();
 
     // get() must NOT serve the bytes — meta says "this isn't what was stored".
-    assert_eq!(store.get(&h), None,
-        "valid-JSON lying meta must veto recall even though hash::verify would pass");
+    assert_eq!(
+        store.get(&h),
+        None,
+        "valid-JSON lying meta must veto recall even though hash::verify would pass"
+    );
 }
 
 // =====================================================================
@@ -175,8 +190,10 @@ fn metrics_record_to_directory_path_does_not_panic_subsequent_summary_clean() {
     let s = metrics::summary();
     // metrics::summary() reads the file. If the path is a directory, read
     // fails and we get clean zeros — never half-state.
-    assert_eq!(s.compress_events, 0,
-        "directory-as-metrics path produces zero events, not a panic or half-state");
+    assert_eq!(
+        s.compress_events, 0,
+        "directory-as-metrics path produces zero events, not a panic or half-state"
+    );
 }
 
 #[test]
@@ -216,8 +233,10 @@ fn api_expand_handle_returns_none_for_unknown_handle_in_clean_store() {
         context: 0,
         session_id: "x".into(),
     });
-    assert!(out.is_none(),
-        "unknown handle in a healthy store must return None — CLI surfaces this as exit 1");
+    assert!(
+        out.is_none(),
+        "unknown handle in a healthy store must return None — CLI surfaces this as exit 1"
+    );
 }
 
 #[test]

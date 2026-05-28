@@ -67,9 +67,12 @@ fn cmd_is_knapsack(cmd: &str) -> bool {
 }
 fn entry_is_knapsack(e: &Json) -> bool {
     if let Some(Json::Arr(hs)) = e.get("hooks").cloned() {
-        return hs
-            .iter()
-            .any(|h| h.get("command").and_then(|c| c.as_str()).map(cmd_is_knapsack).unwrap_or(false));
+        return hs.iter().any(|h| {
+            h.get("command")
+                .and_then(|c| c.as_str())
+                .map(cmd_is_knapsack)
+                .unwrap_or(false)
+        });
     }
     false
 }
@@ -88,10 +91,13 @@ fn hook_entry(bin: &str) -> Json {
     // because Claude Code never delivered Read events to the hook.
     Json::Obj(vec![
         ("matcher".into(), Json::Str("Bash|Read".into())),
-        ("hooks".into(), Json::Arr(vec![Json::Obj(vec![
-            ("type".into(), Json::Str("command".into())),
-            ("command".into(), Json::Str(canonical_cmd(bin))),
-        ])])),
+        (
+            "hooks".into(),
+            Json::Arr(vec![Json::Obj(vec![
+                ("type".into(), Json::Str("command".into())),
+                ("command".into(), Json::Str(canonical_cmd(bin))),
+            ])]),
+        ),
     ])
 }
 fn root_has_hook(root: &Json) -> bool {
@@ -147,7 +153,11 @@ fn apply_hook(root: &mut Json, bin: &str) -> bool {
             // Repair command: rewrite stale binary paths in place.
             if let Some(Json::Arr(hs)) = get_mut(e, "hooks") {
                 for h in hs.iter_mut() {
-                    let is_h_ours = h.get("command").and_then(|c| c.as_str()).map(cmd_is_knapsack).unwrap_or(false);
+                    let is_h_ours = h
+                        .get("command")
+                        .and_then(|c| c.as_str())
+                        .map(cmd_is_knapsack)
+                        .unwrap_or(false);
                     if !is_h_ours {
                         continue;
                     }
@@ -199,7 +209,9 @@ fn mcp_desired(bin: &str) -> Json {
     ])
 }
 fn root_has_mcp(root: &Json) -> bool {
-    root.get("mcpServers").and_then(|s| s.get("knapsack")).is_some()
+    root.get("mcpServers")
+        .and_then(|s| s.get("knapsack"))
+        .is_some()
 }
 fn apply_mcp(root: &mut Json, bin: &str) -> bool {
     let servers = entry(root, "mcpServers", Json::Obj(vec![]));
@@ -245,7 +257,9 @@ fn remove_mcp(root: &mut Json) -> bool {
 /// Remove an object-valued key from `parent` iff its value is an empty object `{}`.
 /// No-op for missing keys, non-object values, or non-empty objects.
 fn prune_empty_object(parent: &mut Json, key: &str) {
-    let Some(Json::Obj(o)) = get_mut(parent, key) else { return };
+    let Some(Json::Obj(o)) = get_mut(parent, key) else {
+        return;
+    };
     if !o.is_empty() {
         return;
     }
@@ -256,7 +270,9 @@ fn prune_empty_object(parent: &mut Json, key: &str) {
 
 /// Remove an array-valued key from `parent` iff its value is an empty array `[]`.
 fn prune_empty_array(parent: &mut Json, key: &str) {
-    let Some(Json::Arr(a)) = get_mut(parent, key) else { return };
+    let Some(Json::Arr(a)) = get_mut(parent, key) else {
+        return;
+    };
     if !a.is_empty() {
         return;
     }
@@ -267,7 +283,10 @@ fn prune_empty_array(parent: &mut Json, key: &str) {
 
 // ---------- file patching with backup ----------
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Find a non-colliding backup filename and copy the file there. Returns the chosen
@@ -291,7 +310,12 @@ fn backup(path: &Path) -> Option<PathBuf> {
         let candidate = if n == 0 {
             PathBuf::from(format!("{}.knapsack-bak-{}", path.display(), secs))
         } else {
-            PathBuf::from(format!("{}.knapsack-bak-{}_{}", path.display(), secs, n + 1))
+            PathBuf::from(format!(
+                "{}.knapsack-bak-{}_{}",
+                path.display(),
+                secs,
+                n + 1
+            ))
         };
         if candidate.exists() {
             continue;
@@ -330,12 +354,16 @@ fn humanize_patch_error(path: &Path, raw: &str) -> String {
             "{p} starts with a UTF-8 BOM that knapsack couldn't strip. Open it in any editor, save as UTF-8 (without BOM), then re-run."
         );
     }
-    if raw.contains("read ") && (raw.contains("Access is denied") || raw.contains("Permission denied")) {
+    if raw.contains("read ")
+        && (raw.contains("Access is denied") || raw.contains("Permission denied"))
+    {
         return format!(
             "{p} can't be read (permission denied). Close any program that has it open, or re-run the installer as the user who owns the file."
         );
     }
-    if raw.contains("write ") && (raw.contains("Access is denied") || raw.contains("Permission denied")) {
+    if raw.contains("write ")
+        && (raw.contains("Access is denied") || raw.contains("Permission denied"))
+    {
         return format!(
             "{p} can't be written (permission denied — file may be read-only or in use). Clear the read-only attribute or close Claude Code, then re-run."
         );
@@ -369,7 +397,11 @@ fn patch_file<F: FnOnce(&mut Json) -> bool>(path: &Path, f: F) -> Result<Patch, 
             json::parse(txt).map_err(|e| {
                 humanize_patch_error(
                     path,
-                    &format!("could not parse {} ({}). Left unchanged — add the entry manually.", path.display(), e),
+                    &format!(
+                        "could not parse {} ({}). Left unchanged — add the entry manually.",
+                        path.display(),
+                        e
+                    ),
                 )
             })?
         }
@@ -411,10 +443,18 @@ pub fn unpatch_mcp_file(path: &Path) -> Result<Patch, String> {
     patch_file(path, remove_mcp)
 }
 pub fn settings_has_hook(path: &Path) -> bool {
-    fs::read_to_string(path).ok().and_then(|t| json::parse(&t).ok()).map(|r| root_has_hook(&r)).unwrap_or(false)
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|t| json::parse(&t).ok())
+        .map(|r| root_has_hook(&r))
+        .unwrap_or(false)
 }
 pub fn mcp_has_server(path: &Path) -> bool {
-    fs::read_to_string(path).ok().and_then(|t| json::parse(&t).ok()).map(|r| root_has_mcp(&r)).unwrap_or(false)
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|t| json::parse(&t).ok())
+        .map(|r| root_has_mcp(&r))
+        .unwrap_or(false)
 }
 
 // ---------- provenance: which binary does each side actually point at? ----------
@@ -445,7 +485,9 @@ fn hook_cmd_in(root: &Json) -> Option<String> {
 }
 /// The binary the PreToolUse knapsack hook would run, per settings.json.
 pub fn hook_binary(path: &Path) -> Option<String> {
-    let root = fs::read_to_string(path).ok().and_then(|t| json::parse(&t).ok())?;
+    let root = fs::read_to_string(path)
+        .ok()
+        .and_then(|t| json::parse(&t).ok())?;
     hook_cmd_in(&root).as_deref().and_then(cmd_bin)
 }
 
@@ -467,7 +509,10 @@ pub enum HookMatcher {
 /// Read the matcher field of the knapsack entry in `path`'s PreToolUse list.
 /// Stops at the first knapsack-owned entry (the `apply_hook` path enforces at-most-one).
 pub fn hook_matcher(path: &Path) -> HookMatcher {
-    let root = match fs::read_to_string(path).ok().and_then(|t| json::parse(&t).ok()) {
+    let root = match fs::read_to_string(path)
+        .ok()
+        .and_then(|t| json::parse(&t).ok())
+    {
         Some(r) => r,
         None => return HookMatcher::NoEntry,
     };
@@ -488,7 +533,9 @@ pub fn hook_matcher(path: &Path) -> HookMatcher {
 }
 /// The binary the knapsack MCP server would run, per the mcp config.
 pub fn mcp_binary(path: &Path) -> Option<String> {
-    let root = fs::read_to_string(path).ok().and_then(|t| json::parse(&t).ok())?;
+    let root = fs::read_to_string(path)
+        .ok()
+        .and_then(|t| json::parse(&t).ok())?;
     root.get("mcpServers")
         .and_then(|s| s.get("knapsack"))
         .and_then(|k| k.get("command"))
@@ -503,7 +550,11 @@ pub fn smoke() -> Result<(), String> {
     use crate::pack::{pack, reconstruct};
     use crate::store::Store;
 
-    let dir = std::env::temp_dir().join(format!("knapsack-smoke-{}-{}", std::process::id(), now_secs()));
+    let dir = std::env::temp_dir().join(format!(
+        "knapsack-smoke-{}-{}",
+        std::process::id(),
+        now_secs()
+    ));
     let store = Store::new(dir.clone());
     let mut ledger = Ledger::in_memory();
     let input = b"/** f */\nfunction f(x) {\n  const a = prepare(x);\n  let acc = 0;\n  for (const i of a) acc += i;\n  return finalize(acc);\n}\n";
@@ -543,7 +594,11 @@ fn writable(dir: &Path) -> bool {
 
 pub fn run_checks() -> Vec<Check> {
     let mut c = Vec::new();
-    let mk = |name: &str, status: Status, detail: String| Check { name: name.into(), status, detail };
+    let mk = |name: &str, status: Status, detail: String| Check {
+        name: name.into(),
+        status,
+        detail,
+    };
 
     // 1. binary found
     match std::env::current_exe() {
@@ -559,7 +614,10 @@ pub fn run_checks() -> Vec<Check> {
     });
     // 3. metrics writable
     let mp = config::metrics_path();
-    let mdir = mp.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+    let mdir = mp
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
     c.push(if writable(&mdir) {
         mk("metrics writable", Status::Ok, mp.display().to_string())
     } else {
@@ -570,7 +628,11 @@ pub fn run_checks() -> Vec<Check> {
     c.push(if settings_has_hook(&sp) {
         mk("hook installed", Status::Ok, sp.display().to_string())
     } else {
-        mk("hook installed", Status::Warn, format!("not in {} — run `knapsack install`", sp.display()))
+        mk(
+            "hook installed",
+            Status::Warn,
+            format!("not in {} — run `knapsack install`", sp.display()),
+        )
     });
     // 4b. hook matcher — presence alone (check 4) is not enough to honor the install
     // contract. Claude Code only routes a tool call to the hook when the matcher
@@ -581,7 +643,11 @@ pub fn run_checks() -> Vec<Check> {
     match hook_matcher(&sp) {
         HookMatcher::NoEntry => {} // covered by check 4 as Warn
         HookMatcher::Value(ref v) if v == CANONICAL_MATCHER => {
-            c.push(mk("hook matcher", Status::Ok, format!("`{}` — output + input reduction", v)));
+            c.push(mk(
+                "hook matcher",
+                Status::Ok,
+                format!("`{}` — output + input reduction", v),
+            ));
         }
         HookMatcher::Value(v) => {
             c.push(mk(
@@ -606,7 +672,11 @@ pub fn run_checks() -> Vec<Check> {
     c.push(if mcp_has_server(&mcp) {
         mk("MCP configured", Status::Ok, mcp.display().to_string())
     } else {
-        mk("MCP configured", Status::Warn, format!("not in {} — run `knapsack install`", mcp.display()))
+        mk(
+            "MCP configured",
+            Status::Warn,
+            format!("not in {} — run `knapsack install`", mcp.display()),
+        )
     });
     // 5b. binary provenance: what the hook and MCP are *configured* to launch (the path on
     // disk), plus the binary running THIS doctor. This is on-disk/config provenance, NOT a
@@ -614,16 +684,26 @@ pub fn run_checks() -> Vec<Check> {
     // their old binary until Claude Code restarts. Labels say "configured" so the report
     // can't be misread as runtime provenance. A 3-way split here is the "accidental install".
     let sha = |p: &str| crate::sha256::sha256_file(Path::new(p));
-    let this_sha = std::env::current_exe().ok().and_then(|p| crate::sha256::sha256_file(&p));
+    let this_sha = std::env::current_exe()
+        .ok()
+        .and_then(|p| crate::sha256::sha256_file(&p));
     let hook_bin = hook_binary(&sp);
     let mcp_bin = mcp_binary(&mcp);
     let hook_sha = hook_bin.as_deref().and_then(&sha);
     let mcp_sha = mcp_bin.as_deref().and_then(&sha);
     let prov = |label: &str, bin: &Option<String>, s: &Option<String>| -> Check {
         match (bin, s) {
-            (Some(p), Some(s)) => mk(label, Status::Ok, format!("{}  (sha {})", p, crate::sha256::short_hex(s))),
+            (Some(p), Some(s)) => mk(
+                label,
+                Status::Ok,
+                format!("{}  (sha {})", p, crate::sha256::short_hex(s)),
+            ),
             (Some(p), None) => mk(label, Status::Fail, format!("{} — file not found", p)),
-            (None, _) => mk(label, Status::Warn, "not configured — run `knapsack install`".into()),
+            (None, _) => mk(
+                label,
+                Status::Warn,
+                "not configured — run `knapsack install`".into(),
+            ),
         }
     };
     c.push(prov("hook configured binary", &hook_bin, &hook_sha));
@@ -631,7 +711,14 @@ pub fn run_checks() -> Vec<Check> {
     c.push(match (&hook_sha, &mcp_sha) {
         (Some(h), Some(m)) if h == m => {
             if this_sha.as_ref().map(|t| t == h).unwrap_or(true) {
-                mk("configured binary drift", Status::Ok, format!("hook == MCP == current binary (sha {})", crate::sha256::short_hex(h)))
+                mk(
+                    "configured binary drift",
+                    Status::Ok,
+                    format!(
+                        "hook == MCP == current binary (sha {})",
+                        crate::sha256::short_hex(h)
+                    ),
+                )
             } else {
                 mk(
                     "configured binary drift",
@@ -653,15 +740,28 @@ pub fn run_checks() -> Vec<Check> {
                 crate::sha256::short_hex(m)
             ),
         ),
-        _ => mk("configured binary drift", Status::Warn, "can't compare — a referenced binary is missing/unconfigured".into()),
+        _ => mk(
+            "configured binary drift",
+            Status::Warn,
+            "can't compare — a referenced binary is missing/unconfigured".into(),
+        ),
     });
     // 6. MCP initialize works
     let init = crate::mcp::handle_message(r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#)
         .and_then(|r| json::parse(&r).ok())
-        .and_then(|v| v.get("result").and_then(|x| x.get("protocolVersion")).and_then(|x| x.as_str()).map(|s| s.to_string()));
+        .and_then(|v| {
+            v.get("result")
+                .and_then(|x| x.get("protocolVersion"))
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string())
+        });
     c.push(match init {
         Some(p) => mk("MCP initialize", Status::Ok, format!("protocol {}", p)),
-        None => mk("MCP initialize", Status::Fail, "no protocolVersion in response".into()),
+        None => mk(
+            "MCP initialize",
+            Status::Fail,
+            "no protocolVersion in response".into(),
+        ),
     });
     // 7. pack/expand smoke
     c.push(match smoke() {
@@ -761,12 +861,19 @@ pub fn apply() -> ApplyResult {
     if let Some(p) = config::metrics_path().parent() {
         let _ = fs::create_dir_all(p);
     }
-    o.push_str(&format!("  ✓ store dir         {}\n", config::store_dir().display()));
+    o.push_str(&format!(
+        "  ✓ store dir         {}\n",
+        config::store_dir().display()
+    ));
 
     // 4. hook  + 5. mcp  (each with backup)
     let sp = settings_path();
     match patch_settings_file(&sp, &bin) {
-        Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ hook patched      {}{}\n", sp.display(), bak_note(&bak))),
+        Ok(Patch::Changed(bak)) => o.push_str(&format!(
+            "  ✓ hook patched      {}{}\n",
+            sp.display(),
+            bak_note(&bak)
+        )),
         Ok(Patch::NoChange) => o.push_str(&format!("  • hook already set  {}\n", sp.display())),
         Err(e) => {
             o.push_str(&format!("  ✗ hook NOT patched  {}\n", e));
@@ -775,7 +882,11 @@ pub fn apply() -> ApplyResult {
     }
     let mcp = mcp_config_path();
     match patch_mcp_file(&mcp, &bin) {
-        Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ MCP patched       {}{}\n", mcp.display(), bak_note(&bak))),
+        Ok(Patch::Changed(bak)) => o.push_str(&format!(
+            "  ✓ MCP patched       {}{}\n",
+            mcp.display(),
+            bak_note(&bak)
+        )),
         Ok(Patch::NoChange) => o.push_str(&format!("  • MCP already set   {}\n", mcp.display())),
         Err(e) => {
             o.push_str(&format!("  ✗ MCP NOT patched   {}\n", e));
@@ -785,7 +896,10 @@ pub fn apply() -> ApplyResult {
 
     // 7. smoke + 8. doctor
     let smoke_ok = smoke().is_ok();
-    o.push_str(&format!("  {} smoke test\n", if smoke_ok { "✓" } else { "✗" }));
+    o.push_str(&format!(
+        "  {} smoke test\n",
+        if smoke_ok { "✓" } else { "✗" }
+    ));
     if !smoke_ok {
         had_failure = true;
     }
@@ -798,8 +912,13 @@ pub fn apply() -> ApplyResult {
 
     // 9. rollback
     o.push_str("\nRestart Claude Code to load the hook + MCP server.\n");
-    o.push_str("Rollback any time:  knapsack uninstall   (add --purge to also delete the store/metrics)\n");
-    ApplyResult { output: o, success: !had_failure }
+    o.push_str(
+        "Rollback any time:  knapsack uninstall   (add --purge to also delete the store/metrics)\n",
+    );
+    ApplyResult {
+        output: o,
+        success: !had_failure,
+    }
 }
 
 fn bak_note(bak: &Option<PathBuf>) -> String {
@@ -814,7 +933,10 @@ fn bak_note(bak: &Option<PathBuf>) -> String {
 /// shell. Never emits the `setx PATH "$dest;%PATH%"` form (truncates at 1024 chars and folds
 /// the combined PATH into the User scope) — uses the registry-scoped .NET setter instead.
 fn path_guidance() -> String {
-    let dir = match std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+    let dir = match std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    {
         Some(d) => d.display().to_string(),
         None => return String::new(),
     };
@@ -835,9 +957,14 @@ pub fn repair() -> ApplyResult {
     let mut o = String::from("knapsack install --repair\n\n");
     let mut had_failure = false;
 
-    let canon_sha = std::env::current_exe().ok().and_then(|p| crate::sha256::sha256_file(&p));
+    let canon_sha = std::env::current_exe()
+        .ok()
+        .and_then(|p| crate::sha256::sha256_file(&p));
     o.push_str(&format!("  canonical binary    {}\n", bin));
-    o.push_str(&format!("  canonical sha256    {}\n\n", canon_sha.as_deref().unwrap_or("<unreadable>")));
+    o.push_str(&format!(
+        "  canonical sha256    {}\n\n",
+        canon_sha.as_deref().unwrap_or("<unreadable>")
+    ));
 
     let _ = fs::create_dir_all(config::store_dir());
     if let Some(p) = config::metrics_path().parent() {
@@ -846,7 +973,11 @@ pub fn repair() -> ApplyResult {
 
     let sp = settings_path();
     match patch_settings_file(&sp, &bin) {
-        Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ hook repointed    {}{}\n", sp.display(), bak_note(&bak))),
+        Ok(Patch::Changed(bak)) => o.push_str(&format!(
+            "  ✓ hook repointed    {}{}\n",
+            sp.display(),
+            bak_note(&bak)
+        )),
         Ok(Patch::NoChange) => o.push_str(&format!("  • hook already ok   {}\n", sp.display())),
         Err(e) => {
             o.push_str(&format!("  ✗ hook NOT fixed    {}\n", e));
@@ -855,7 +986,11 @@ pub fn repair() -> ApplyResult {
     }
     let mcp = mcp_config_path();
     match patch_mcp_file(&mcp, &bin) {
-        Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ MCP repointed     {}{}\n", mcp.display(), bak_note(&bak))),
+        Ok(Patch::Changed(bak)) => o.push_str(&format!(
+            "  ✓ MCP repointed     {}{}\n",
+            mcp.display(),
+            bak_note(&bak)
+        )),
         Ok(Patch::NoChange) => o.push_str(&format!("  • MCP already ok    {}\n", mcp.display())),
         Err(e) => {
             o.push_str(&format!("  ✗ MCP NOT fixed     {}\n", e));
@@ -871,20 +1006,31 @@ pub fn repair() -> ApplyResult {
         had_failure = true;
     }
     o.push_str("\nRestart Claude Code to load the repointed hook + MCP server.\n");
-    ApplyResult { output: o, success: !had_failure }
+    ApplyResult {
+        output: o,
+        success: !had_failure,
+    }
 }
 
 pub fn uninstall(purge: bool) -> String {
     let mut o = String::from("knapsack uninstall\n\n");
     let sp = settings_path();
     match unpatch_settings_file(&sp) {
-        Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ hook removed      {}{}\n", sp.display(), bak_note(&bak))),
+        Ok(Patch::Changed(bak)) => o.push_str(&format!(
+            "  ✓ hook removed      {}{}\n",
+            sp.display(),
+            bak_note(&bak)
+        )),
         Ok(Patch::NoChange) => o.push_str(&format!("  • no hook found     {}\n", sp.display())),
         Err(e) => o.push_str(&format!("  ✗ {}\n", e)),
     }
     let mcp = mcp_config_path();
     match unpatch_mcp_file(&mcp) {
-        Ok(Patch::Changed(bak)) => o.push_str(&format!("  ✓ MCP removed       {}{}\n", mcp.display(), bak_note(&bak))),
+        Ok(Patch::Changed(bak)) => o.push_str(&format!(
+            "  ✓ MCP removed       {}{}\n",
+            mcp.display(),
+            bak_note(&bak)
+        )),
         Ok(Patch::NoChange) => o.push_str(&format!("  • no MCP entry      {}\n", mcp.display())),
         Err(e) => o.push_str(&format!("  ✗ {}\n", e)),
     }

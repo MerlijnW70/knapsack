@@ -44,15 +44,31 @@ fn assert_tiles(bytes: &[u8], ct: ContentType) {
     let mut cat = Vec::with_capacity(bytes.len());
     for &(s, e) in &blocks {
         assert!(s <= e, "range must be non-inverted: ({s},{e})");
-        assert!(e <= bytes.len(), "range must be in bounds: ({s},{e}) len {}", bytes.len());
+        assert!(
+            e <= bytes.len(),
+            "range must be in bounds: ({s},{e}) len {}",
+            bytes.len()
+        );
         cat.extend_from_slice(&bytes[s..e]);
     }
-    assert_eq!(cat, bytes, "blocks must concatenate to the EXACT input (ct={ct:?}, len {})", bytes.len());
+    assert_eq!(
+        cat,
+        bytes,
+        "blocks must concatenate to the EXACT input (ct={ct:?}, len {})",
+        bytes.len()
+    );
     if !bytes.is_empty() {
         assert_eq!(blocks.first().unwrap().0, 0, "first block starts at 0");
-        assert_eq!(blocks.last().unwrap().1, bytes.len(), "last block ends at len");
+        assert_eq!(
+            blocks.last().unwrap().1,
+            bytes.len(),
+            "last block ends at len"
+        );
         for w in blocks.windows(2) {
-            assert_eq!(w[0].1, w[1].0, "blocks must tile contiguously, no gap/overlap");
+            assert_eq!(
+                w[0].1, w[1].0,
+                "blocks must tile contiguously, no gap/overlap"
+            );
         }
     }
 }

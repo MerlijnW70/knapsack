@@ -48,7 +48,9 @@ fn env_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     // PoisonError is fine — a poisoned lock just means a previous test panicked
     // while holding it; EnvSandbox::drop restores env state regardless.
-    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner())
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 /// RAII sandbox: holds the global env lock for its lifetime, points all
@@ -83,7 +85,11 @@ impl EnvSandbox {
             std::env::set_var(key, dir.join(rel));
         }
 
-        Self { _lock: lock, dir, restore }
+        Self {
+            _lock: lock,
+            dir,
+            restore,
+        }
     }
 
     /// The temp directory backing this sandbox. Tests can read/write here
@@ -132,6 +138,12 @@ impl Drop for EnvSandbox {
 
 fn sanitize_tag(tag: &str) -> String {
     tag.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }

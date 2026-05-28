@@ -24,13 +24,24 @@ use std::process::{Command, Stdio};
 fn bin() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.push("target");
-    p.push(if cfg!(debug_assertions) { "debug" } else { "release" });
-    p.push(if cfg!(windows) { "knapsack.exe" } else { "knapsack" });
+    p.push(if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    });
+    p.push(if cfg!(windows) {
+        "knapsack.exe"
+    } else {
+        "knapsack"
+    });
     p
 }
 
 fn sandbox(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let p = std::env::temp_dir().join(format!("kn-cliflag-{}-{}-{}", tag, std::process::id(), t));
     std::fs::create_dir_all(&p).unwrap();
     p
@@ -53,7 +64,12 @@ fn run(sb: &PathBuf, args: &[&str], stdin: Option<&[u8]>) -> (String, String, i3
     }
     let mut child = cmd.spawn().expect("spawn");
     if let Some(data) = stdin {
-        child.stdin.as_mut().unwrap().write_all(data).expect("stdin write");
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(data)
+            .expect("stdin write");
         drop(child.stdin.take());
     }
     let out = child.wait_with_output().expect("wait");
@@ -72,7 +88,15 @@ fn pack_session_flag_equals_form_lands_in_correct_metrics_session() {
     let payload = b"line1\nline2\nline3 of test output\nline4\nline5\n";
     let (_, stderr, code) = run(
         &sb,
-        &["pack", "-", "--session=eqsess", "--cmd", "test", "--type", "log"],
+        &[
+            "pack",
+            "-",
+            "--session=eqsess",
+            "--cmd",
+            "test",
+            "--type",
+            "log",
+        ],
         Some(payload),
     );
     assert_eq!(code, 0, "pack must succeed; stderr was: {stderr}");
@@ -96,12 +120,24 @@ fn pack_session_flag_space_form_still_works() {
     let payload = b"output line\nmore output\nanother line\n";
     let (_, _, code) = run(
         &sb,
-        &["pack", "-", "--session", "spcsess", "--cmd", "test", "--type", "log"],
+        &[
+            "pack",
+            "-",
+            "--session",
+            "spcsess",
+            "--cmd",
+            "test",
+            "--type",
+            "log",
+        ],
         Some(payload),
     );
     assert_eq!(code, 0);
     let metrics = std::fs::read_to_string(sb.join("metrics.jsonl")).unwrap();
-    assert!(metrics.contains(r#""session":"spcsess""#), "space form unchanged; got:\n{metrics}");
+    assert!(
+        metrics.contains(r#""session":"spcsess""#),
+        "space form unchanged; got:\n{metrics}"
+    );
     let _ = std::fs::remove_dir_all(&sb);
 }
 
@@ -113,12 +149,22 @@ fn pack_mixed_forms_in_one_invocation_work() {
     let payload = b"some long-enough output to pack\nlinetwo\nlinethree\n";
     let (_, _, code) = run(
         &sb,
-        &["pack", "-", "--session=mixsess", "--cmd", "cargo", "--type=log"],
+        &[
+            "pack",
+            "-",
+            "--session=mixsess",
+            "--cmd",
+            "cargo",
+            "--type=log",
+        ],
         Some(payload),
     );
     assert_eq!(code, 0);
     let metrics = std::fs::read_to_string(sb.join("metrics.jsonl")).unwrap();
-    assert!(metrics.contains(r#""session":"mixsess""#), "session via equals form recognized");
+    assert!(
+        metrics.contains(r#""session":"mixsess""#),
+        "session via equals form recognized"
+    );
     let _ = std::fs::remove_dir_all(&sb);
 }
 
@@ -150,9 +196,17 @@ fn expand_lines_equals_form_parses_and_slices_correctly() {
 
     // Equals form: --lines=2-4 must return lines 2..=4 (1-based inclusive)
     let (out, stderr, code) = run(&sb, &["expand", &handle, "--lines=2-4"], None);
-    assert_eq!(code, 0, "expand with --lines= must succeed; stderr: {stderr}");
+    assert_eq!(
+        code, 0,
+        "expand with --lines= must succeed; stderr: {stderr}"
+    );
     let lines: Vec<&str> = out.trim_end().split('\n').collect();
-    assert_eq!(lines, vec!["second", "third", "fourth"], "equals form slicing produced {:?}", lines);
+    assert_eq!(
+        lines,
+        vec!["second", "third", "fourth"],
+        "equals form slicing produced {:?}",
+        lines
+    );
     let _ = std::fs::remove_dir_all(&sb);
 }
 
@@ -164,11 +218,20 @@ fn expand_context_equals_form_parses_as_number() {
     let payload = b"unrelated1\nunrelated2\nMATCH_HERE\nunrelated3\nunrelated4\n";
     let handle = store_put(&sb, payload, "ctx.txt");
 
-    let (out, stderr, code) = run(&sb, &["expand", &handle, "--grep=MATCH", "--context=1"], None);
+    let (out, stderr, code) = run(
+        &sb,
+        &["expand", &handle, "--grep=MATCH", "--context=1"],
+        None,
+    );
     assert_eq!(code, 0, "stderr: {stderr}");
     let lines: Vec<&str> = out.trim_end().split('\n').collect();
     // Context 1 around MATCH_HERE: previous line + match + next line = 3 lines
-    assert_eq!(lines.len(), 3, "context=1 returns 3 lines (prev+match+next); got {:?}", lines);
+    assert_eq!(
+        lines.len(),
+        3,
+        "context=1 returns 3 lines (prev+match+next); got {:?}",
+        lines
+    );
     assert!(lines.contains(&"MATCH_HERE"));
     let _ = std::fs::remove_dir_all(&sb);
 }
@@ -181,8 +244,17 @@ fn expand_grep_equals_form_works() {
 
     let (out, stderr, code) = run(&sb, &["expand", &handle, "--grep=FINDME"], None);
     assert_eq!(code, 0, "stderr: {stderr}");
-    let lines: Vec<&str> = out.trim_end().split('\n').filter(|s| !s.is_empty()).collect();
-    assert_eq!(lines.len(), 2, "grep should match both FINDME lines; got {:?}", lines);
+    let lines: Vec<&str> = out
+        .trim_end()
+        .split('\n')
+        .filter(|s| !s.is_empty())
+        .collect();
+    assert_eq!(
+        lines.len(),
+        2,
+        "grep should match both FINDME lines; got {:?}",
+        lines
+    );
     let _ = std::fs::remove_dir_all(&sb);
 }
 
@@ -215,7 +287,10 @@ fn gc_older_than_equals_form_parses_as_days() {
     // valid report with 0/0 counts.
     let (out, _, code) = run(&sb, &["gc", "--older-than=7", "--dry-run"], None);
     assert_eq!(code, 0, "gc with --older-than=N must succeed");
-    assert!(out.contains("knapsack gc"), "gc must produce its report; got:\n{out}");
+    assert!(
+        out.contains("knapsack gc"),
+        "gc must produce its report; got:\n{out}"
+    );
     let _ = std::fs::remove_dir_all(&sb);
 }
 
@@ -243,7 +318,16 @@ fn pack_session_empty_value_loud_rejects_via_space_form() {
     let sb = sandbox("empty-session-space");
     let (_, stderr, code) = run(
         &sb,
-        &["pack", "-", "--session", "", "--cmd", "test", "--type", "log"],
+        &[
+            "pack",
+            "-",
+            "--session",
+            "",
+            "--cmd",
+            "test",
+            "--type",
+            "log",
+        ],
         Some(b"some output\n"),
     );
     assert_eq!(code, 2, "empty --session must exit 2; stderr: {stderr}");
@@ -290,11 +374,26 @@ fn pack_session_whitespace_only_loud_rejects() {
     let sb = sandbox("ws-session");
     let (_, stderr, code) = run(
         &sb,
-        &["pack", "-", "--session", "   ", "--cmd", "test", "--type", "log"],
+        &[
+            "pack",
+            "-",
+            "--session",
+            "   ",
+            "--cmd",
+            "test",
+            "--type",
+            "log",
+        ],
         Some(b"some output\n"),
     );
-    assert_eq!(code, 2, "whitespace --session must exit 2; stderr: {stderr}");
-    assert!(stderr.contains("--session"), "stderr names the flag: {stderr}");
+    assert_eq!(
+        code, 2,
+        "whitespace --session must exit 2; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("--session"),
+        "stderr names the flag: {stderr}"
+    );
     let _ = std::fs::remove_dir_all(&sb);
 }
 
@@ -312,8 +411,14 @@ fn expand_session_empty_value_loud_rejects_too() {
     let handle = out.trim().to_string();
 
     let (_, stderr, code) = run(&sb, &["expand", &handle, "--session", ""], None);
-    assert_eq!(code, 2, "expand with empty --session must exit 2; stderr: {stderr}");
-    assert!(stderr.contains("--session"), "stderr names the flag: {stderr}");
+    assert_eq!(
+        code, 2,
+        "expand with empty --session must exit 2; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("--session"),
+        "stderr names the flag: {stderr}"
+    );
     let _ = std::fs::remove_dir_all(&sb);
 }
 
@@ -331,10 +436,22 @@ fn pack_with_500_char_session_succeeds_and_persists_ledger() {
     let long: String = "a".repeat(500);
     let (_, stderr, code) = run(
         &sb,
-        &["pack", "-", "--session", &long, "--cmd", "test", "--type", "log"],
+        &[
+            "pack",
+            "-",
+            "--session",
+            &long,
+            "--cmd",
+            "test",
+            "--type",
+            "log",
+        ],
         Some(&payload),
     );
-    assert_eq!(code, 0, "500-char session must pack successfully; stderr: {stderr}");
+    assert_eq!(
+        code, 0,
+        "500-char session must pack successfully; stderr: {stderr}"
+    );
 
     // The session ledger MUST have been persisted (sub-128-char filename + .tsv).
     let sessions_dir = sb.join("sessions");
@@ -342,10 +459,17 @@ fn pack_with_500_char_session_succeeds_and_persists_ledger() {
         .expect("sessions dir must exist")
         .filter_map(|e| e.ok())
         .collect();
-    assert_eq!(files.len(), 1, "exactly one session file expected, got {:?}",
-        files.iter().map(|f| f.file_name()).collect::<Vec<_>>());
+    assert_eq!(
+        files.len(),
+        1,
+        "exactly one session file expected, got {:?}",
+        files.iter().map(|f| f.file_name()).collect::<Vec<_>>()
+    );
     let fname = files[0].file_name().to_string_lossy().into_owned();
-    assert!(fname.ends_with(".tsv"), "session file must end in .tsv: {fname}");
+    assert!(
+        fname.ends_with(".tsv"),
+        "session file must end in .tsv: {fname}"
+    );
     assert!(
         fname.len() <= 132,
         "session filename must be capped at MAX_SESSION_BASENAME(128) + '.tsv'(4); got {} chars: {fname}",
@@ -354,7 +478,10 @@ fn pack_with_500_char_session_succeeds_and_persists_ledger() {
 
     // And the file must not be empty — i.e. the ledger actually wrote.
     let ledger_bytes = std::fs::read(files[0].path()).unwrap();
-    assert!(!ledger_bytes.is_empty(), "ledger file must contain at least one block entry");
+    assert!(
+        !ledger_bytes.is_empty(),
+        "ledger file must contain at least one block entry"
+    );
 
     let _ = std::fs::remove_dir_all(&sb);
 }
@@ -375,12 +502,23 @@ fn pack_doc_output_equals_form_writes_to_chosen_path() {
 
     let (_, stderr, code) = run(
         &sb,
-        &["pack", src.to_str().unwrap(), &format!("--output={}", custom.display()), "--force"],
+        &[
+            "pack",
+            src.to_str().unwrap(),
+            &format!("--output={}", custom.display()),
+            "--force",
+        ],
         None,
     );
     assert_eq!(code, 0, "pack <file> must succeed; stderr: {stderr}");
-    assert!(custom.exists(), "the --output= path must be written to (not the default side-car)");
+    assert!(
+        custom.exists(),
+        "the --output= path must be written to (not the default side-car)"
+    );
     let default_sidecar = sb.join("input.knapsack.md");
-    assert!(!default_sidecar.exists(), "the default side-car must NOT exist when --output= was specified");
+    assert!(
+        !default_sidecar.exists(),
+        "the default side-car must NOT exist when --output= was specified"
+    );
     let _ = std::fs::remove_dir_all(&sb);
 }

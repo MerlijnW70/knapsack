@@ -38,10 +38,13 @@ fn rpc_error(id: Option<Json>, code: i64, message: &str) -> String {
     json::to_string(&Json::Obj(vec![
         ("jsonrpc".into(), Json::Str("2.0".into())),
         ("id".into(), id.unwrap_or(Json::Null)),
-        ("error".into(), Json::Obj(vec![
-            ("code".into(), Json::Num(code as f64)),
-            ("message".into(), Json::Str(message.into())),
-        ])),
+        (
+            "error".into(),
+            Json::Obj(vec![
+                ("code".into(), Json::Num(code as f64)),
+                ("message".into(), Json::Str(message.into())),
+            ]),
+        ),
     ]))
 }
 
@@ -49,10 +52,13 @@ fn text_result(id: Option<Json>, text: String, is_error: bool) -> String {
     reply(
         id,
         Json::Obj(vec![
-            ("content".into(), Json::Arr(vec![Json::Obj(vec![
-                ("type".into(), Json::Str("text".into())),
-                ("text".into(), Json::Str(text)),
-            ])])),
+            (
+                "content".into(),
+                Json::Arr(vec![Json::Obj(vec![
+                    ("type".into(), Json::Str("text".into())),
+                    ("text".into(), Json::Str(text)),
+                ])]),
+            ),
             ("isError".into(), Json::Bool(is_error)),
         ]),
     )
@@ -73,11 +79,17 @@ fn tool(name: &str, desc: &str, props: Vec<(String, Json)>, required: &[&str]) -
     Json::Obj(vec![
         ("name".into(), Json::Str(name.into())),
         ("description".into(), Json::Str(desc.into())),
-        ("inputSchema".into(), Json::Obj(vec![
-            ("type".into(), Json::Str("object".into())),
-            ("properties".into(), Json::Obj(props)),
-            ("required".into(), Json::Arr(required.iter().map(|r| Json::Str((*r).into())).collect())),
-        ])),
+        (
+            "inputSchema".into(),
+            Json::Obj(vec![
+                ("type".into(), Json::Str("object".into())),
+                ("properties".into(), Json::Obj(props)),
+                (
+                    "required".into(),
+                    Json::Arr(required.iter().map(|r| Json::Str((*r).into())).collect()),
+                ),
+            ]),
+        ),
     ])
 }
 
@@ -119,14 +131,18 @@ fn tools() -> Json {
 
 // ---------- dispatch ----------
 fn arg_str(args: Option<&Json>, key: &str) -> Option<String> {
-    args.and_then(|a| a.get(key)).and_then(|v| v.as_str()).map(|s| s.to_string())
+    args.and_then(|a| a.get(key))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 fn call_tool(id: Option<Json>, name: &str, args: Option<&Json>) -> String {
     match name {
         "knapsack_expand" => {
             let handle = match arg_str(args, "handle") {
                 Some(h) => h,
-                None => return text_result(id, "knapsack_expand: 'handle' is required".into(), true),
+                None => {
+                    return text_result(id, "knapsack_expand: 'handle' is required".into(), true)
+                }
             };
             if !crate::hash::is_valid_handle(&handle) {
                 return text_result(
@@ -144,16 +160,18 @@ fn call_tool(id: Option<Json>, name: &str, args: Option<&Json>) -> String {
             // expanding the whole file / using zero context.
             let range = match arg_str(args, "lines").as_deref() {
                 None => None,
-                Some(s) => match parse_range(s) {
-                    Some(r) => Some(r),
-                    None => {
-                        return text_result(
+                Some(s) => {
+                    match parse_range(s) {
+                        Some(r) => Some(r),
+                        None => {
+                            return text_result(
                             id,
                             format!("knapsack_expand: 'lines' expects A-B (1-based inclusive), got: {}", crate::hash::display_handle(s)),
                             true,
                         );
+                        }
                     }
-                },
+                }
             };
             let context: usize = match args.and_then(|a| a.get("context")) {
                 None => 0,
@@ -179,7 +197,14 @@ fn call_tool(id: Option<Json>, name: &str, args: Option<&Json>) -> String {
                 Some(RecallOut::Text(t)) => text_result(id, t, false),
                 Some(RecallOut::Bytes(b)) => match String::from_utf8(b) {
                     Ok(t) => text_result(id, t, false),
-                    Err(e) => text_result(id, format!("[binary content: {} bytes — not shown]", e.into_bytes().len()), false),
+                    Err(e) => text_result(
+                        id,
+                        format!(
+                            "[binary content: {} bytes — not shown]",
+                            e.into_bytes().len()
+                        ),
+                        false,
+                    ),
                 },
                 None => text_result(id, format!("No such handle: {}", handle), true),
             }
@@ -187,7 +212,9 @@ fn call_tool(id: Option<Json>, name: &str, args: Option<&Json>) -> String {
         "knapsack_inspect" => {
             let handle = match arg_str(args, "handle") {
                 Some(h) => h,
-                None => return text_result(id, "knapsack_inspect: 'handle' is required".into(), true),
+                None => {
+                    return text_result(id, "knapsack_inspect: 'handle' is required".into(), true)
+                }
             };
             if !crate::hash::is_valid_handle(&handle) {
                 return text_result(
@@ -206,7 +233,11 @@ fn call_tool(id: Option<Json>, name: &str, args: Option<&Json>) -> String {
                     let utf8 = std::str::from_utf8(&b).is_ok();
                     let mut t = format!(
                         "{}: {} bytes · {} lines · ~{} tok · utf8={}",
-                        handle, b.len(), block::count_lines(&b), token_estimate::tokens_bytes(&b), utf8
+                        handle,
+                        b.len(),
+                        block::count_lines(&b),
+                        token_estimate::tokens_bytes(&b),
+                        utf8
                     );
                     if utf8 {
                         for l in String::from_utf8_lossy(&b).lines().take(3) {
@@ -245,11 +276,17 @@ pub fn handle_message(line: &str) -> Option<String> {
             id,
             Json::Obj(vec![
                 ("protocolVersion".into(), Json::Str(PROTOCOL.into())),
-                ("capabilities".into(), Json::Obj(vec![("tools".into(), Json::Obj(vec![]))])),
-                ("serverInfo".into(), Json::Obj(vec![
-                    ("name".into(), Json::Str("knapsack".into())),
-                    ("version".into(), Json::Str(VERSION.into())),
-                ])),
+                (
+                    "capabilities".into(),
+                    Json::Obj(vec![("tools".into(), Json::Obj(vec![]))]),
+                ),
+                (
+                    "serverInfo".into(),
+                    Json::Obj(vec![
+                        ("name".into(), Json::Str("knapsack".into())),
+                        ("version".into(), Json::Str(VERSION.into())),
+                    ]),
+                ),
                 ("instructions".into(), Json::Str(INSTRUCTIONS.into())),
             ]),
         )),
@@ -257,14 +294,21 @@ pub fn handle_message(line: &str) -> Option<String> {
         "tools/list" => Some(reply(id, Json::Obj(vec![("tools".into(), tools())]))),
         "tools/call" => {
             let params = msg.get("params");
-            let name = params.and_then(|p| p.get("name")).and_then(|n| n.as_str()).unwrap_or("");
+            let name = params
+                .and_then(|p| p.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("");
             let args = params.and_then(|p| p.get("arguments"));
             Some(call_tool(id, name, args))
         }
         _ => {
             // Respond with an error only to requests (which carry an id), not notifications.
             if id.is_some() {
-                Some(rpc_error(id, -32601, &format!("Method not found: {}", method)))
+                Some(rpc_error(
+                    id,
+                    -32601,
+                    &format!("Method not found: {}", method),
+                ))
             } else {
                 None
             }

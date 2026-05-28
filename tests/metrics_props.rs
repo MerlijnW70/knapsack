@@ -7,7 +7,10 @@ use knapsack::metrics;
 
 #[test]
 fn metrics_accounting_filtering_and_resilience() {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let dir = std::env::temp_dir().join(format!("knapsack-metrics-{}-{}", std::process::id(), t));
     let path = dir.join("m.jsonl");
     std::env::set_var("KNAPSACK_METRICS", &path);
@@ -33,7 +36,10 @@ fn metrics_accounting_filtering_and_resilience() {
     assert_eq!(all.evicted_backrefs_avoided, 1);
     assert_eq!(all.expand_calls, 3);
     assert_eq!(all.failed_expands, 1);
-    assert_eq!(all.refetched, 20, "failed expands contribute no refetched tokens");
+    assert_eq!(
+        all.refetched, 20,
+        "failed expands contribute no refetched tokens"
+    );
     assert_eq!(all.net, 240, "net = saved(260) - refetched(20)");
 
     let s1 = metrics::summary_filtered(Some("s1"));
@@ -47,18 +53,27 @@ fn metrics_accounting_filtering_and_resilience() {
     // Over-expansion drives net negative — the scoreboard never flatters.
     metrics::record_compress("s3", 10, 8, 2, 0, 0);
     metrics::record_expand("s3", 100, true);
-    assert!(metrics::summary_filtered(Some("s3")).net < 0, "over-expansion => negative net");
+    assert!(
+        metrics::summary_filtered(Some("s3")).net < 0,
+        "over-expansion => negative net"
+    );
 
     // Malformed lines are skipped, never fatal.
     {
         use std::io::Write;
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         writeln!(f, "this is not json at all").unwrap();
         writeln!(f, "{{\"event\":\"compress\"").unwrap(); // truncated
         writeln!(f).unwrap();
     }
     let after = metrics::summary();
-    assert_eq!(after.compress_events, 5, "malformed lines skipped; the 5 valid compress lines intact");
+    assert_eq!(
+        after.compress_events, 5,
+        "malformed lines skipped; the 5 valid compress lines intact"
+    );
 
     // Concurrent appends from many threads: with the single-write_all atomic append, no lines
     // are lost and the summary stays coherent (every counted line carries saved=5).
@@ -76,13 +91,26 @@ fn metrics_accounting_filtering_and_resilience() {
     });
     let c = metrics::summary();
     let expected = threads * per;
-    assert!(c.compress_events <= expected, "cannot count more than were appended");
+    assert!(
+        c.compress_events <= expected,
+        "cannot count more than were appended"
+    );
     assert!(
         c.compress_events as f64 >= expected as f64 * 0.95,
         "atomic appends must not lose lines under contention ({}/{expected})",
         c.compress_events
     );
-    assert_eq!(c.saved, c.compress_events as isize * 5, "every counted line parsed coherently (saved=5 each)");
-    assert_eq!(c.delta_hits, c.compress_events, "and delta_hits=1 each — totals never corrupt");
-    eprintln!("concurrent metric appends survived: {}/{expected}", c.compress_events);
+    assert_eq!(
+        c.saved,
+        c.compress_events as isize * 5,
+        "every counted line parsed coherently (saved=5 each)"
+    );
+    assert_eq!(
+        c.delta_hits, c.compress_events,
+        "and delta_hits=1 each — totals never corrupt"
+    );
+    eprintln!(
+        "concurrent metric appends survived: {}/{expected}",
+        c.compress_events
+    );
 }

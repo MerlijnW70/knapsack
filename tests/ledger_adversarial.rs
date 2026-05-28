@@ -8,8 +8,16 @@ use knapsack::ledger::{Ledger, Residency};
 use std::path::PathBuf;
 
 fn tmp_ledger_path(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let p = std::env::temp_dir().join(format!("kn-ledger-{}-{}-{}.tsv", tag, std::process::id(), t));
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let p = std::env::temp_dir().join(format!(
+        "kn-ledger-{}-{}-{}.tsv",
+        tag,
+        std::process::id(),
+        t
+    ));
     p
 }
 
@@ -17,7 +25,14 @@ fn tmp_ledger_path(tag: &str) -> PathBuf {
 
 #[test]
 fn load_missing_file_returns_empty_ledger() {
-    let p = std::env::temp_dir().join(format!("kn-noexist-{}-{}.tsv", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let p = std::env::temp_dir().join(format!(
+        "kn-noexist-{}-{}.tsv",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
     assert!(!p.exists());
     let l = Ledger::load(p);
     assert_eq!(l.len(), 0);
@@ -60,8 +75,14 @@ ks2_dddddddddddddddddddddddddddddddd\t0\t4\t400\textra-field-ignored
     // 4 valid lines (a, b, c, d). Malformed and empty lines silently skipped.
     assert_eq!(l.len(), 4, "must keep 4 valid entries, skip the rest");
     // Spot-check: 'a' is Resident, 'b' is Evicted (code 1).
-    assert_eq!(l.residency(&"ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()), Residency::Resident);
-    assert_eq!(l.residency(&"ks2_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()), Residency::Evicted);
+    assert_eq!(
+        l.residency(&"ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+        Residency::Resident
+    );
+    assert_eq!(
+        l.residency(&"ks2_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
+        Residency::Evicted
+    );
     let _ = std::fs::remove_file(&p);
 }
 
@@ -76,7 +97,12 @@ ks2_d\t0\t1\t100
 ";
     std::fs::write(&p, content).unwrap();
     let l = Ledger::load(p.clone());
-    assert_eq!(l.len(), 1, "only the all-valid line survives, got {}", l.len());
+    assert_eq!(
+        l.len(),
+        1,
+        "only the all-valid line survives, got {}",
+        l.len()
+    );
     let _ = std::fs::remove_file(&p);
 }
 
@@ -127,7 +153,11 @@ fn load_handles_crlf_line_endings() {
     // text.lines() handles both \n and \r\n, BUT the last \r might get included
     // in the token field. Verify current behavior — should still parse both.
     // (If it doesn't, that's a Windows-on-Windows readback bug.)
-    assert!(l.len() >= 1, "CRLF must not break loading: got {} entries", l.len());
+    assert!(
+        l.len() >= 1,
+        "CRLF must not break loading: got {} entries",
+        l.len()
+    );
     let _ = std::fs::remove_file(&p);
 }
 
@@ -153,13 +183,19 @@ fn save_then_reload_preserves_all_entries() {
 fn evict_on_unknown_handle_is_noop() {
     let mut l = Ledger::in_memory();
     l.evict(&"ks2_neverseen".to_string()); // must not panic
-    assert_eq!(l.residency(&"ks2_neverseen".to_string()), Residency::Unknown);
+    assert_eq!(
+        l.residency(&"ks2_neverseen".to_string()),
+        Residency::Unknown
+    );
 }
 
 #[test]
 fn residency_of_unknown_handle_is_unknown() {
     let l = Ledger::in_memory();
-    assert_eq!(l.residency(&"ks2_neverseen".to_string()), Residency::Unknown);
+    assert_eq!(
+        l.residency(&"ks2_neverseen".to_string()),
+        Residency::Unknown
+    );
 }
 
 // ---------- budget enforcement ----------
@@ -239,5 +275,8 @@ fn enforce_budget_on_10k_entries_terminates_quickly() {
     let evicted = l.enforce_budget(5000);
     let dur = start.elapsed();
     assert!(evicted >= 5000, "should evict at least 5000");
-    assert!(dur.as_secs() < 2, "10K budget enforce took {dur:?} — quadratic regression?");
+    assert!(
+        dur.as_secs() < 2,
+        "10K budget enforce took {dur:?} — quadratic regression?"
+    );
 }

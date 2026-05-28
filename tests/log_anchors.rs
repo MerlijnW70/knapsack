@@ -13,8 +13,16 @@ use knapsack::store::Store;
 use std::path::PathBuf;
 
 fn store_dir(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let d = std::env::temp_dir().join(format!("knapsack-anchors-{}-{}-{}", tag, std::process::id(), t));
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let d = std::env::temp_dir().join(format!(
+        "knapsack-anchors-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ));
     std::fs::create_dir_all(&d).unwrap();
     d
 }
@@ -24,7 +32,9 @@ fn store_dir(tag: &str) -> PathBuf {
 fn buried(prefix_count: usize, anchor: &str, suffix_count: usize) -> Vec<u8> {
     let mut s = String::new();
     for i in 0..prefix_count {
-        s.push_str(&format!("[INFO] step {i}: doing routine work, no problems here\n"));
+        s.push_str(&format!(
+            "[INFO] step {i}: doing routine work, no problems here\n"
+        ));
     }
     s.push_str(anchor);
     if !anchor.ends_with('\n') {
@@ -139,7 +149,11 @@ error: aborting due to 1 previous error
 ";
     let bytes = buried(40, anchor, 40);
     let view = pack_view(&bytes, "rust");
-    assert_anchored(&view, &["error[E0277]", "aborting due to 1 previous error"], "rust");
+    assert_anchored(
+        &view,
+        &["error[E0277]", "aborting due to 1 previous error"],
+        "rust",
+    );
 }
 
 #[test]
@@ -150,11 +164,7 @@ src/bar.ts(1,1): error TS2304: Cannot find name 'unknownSymbol'.
 ";
     let bytes = buried(40, anchor, 40);
     let view = pack_view(&bytes, "ts");
-    assert_anchored(
-        &view,
-        &["error TS2322", "error TS2304"],
-        "typescript",
-    );
+    assert_anchored(&view, &["error TS2322", "error TS2304"], "typescript");
 }
 
 #[test]
@@ -174,7 +184,11 @@ Caused by: java.lang.NullPointerException
     let view = pack_view(&bytes, "gradle");
     assert_anchored(
         &view,
-        &["* What went wrong:", "Execution failed for task", "Caused by: java.lang.NullPointerException"],
+        &[
+            "* What went wrong:",
+            "Execution failed for task",
+            "Caused by: java.lang.NullPointerException",
+        ],
         "gradle",
     );
 }
@@ -213,7 +227,10 @@ FAILED: Build did NOT complete successfully
     let view = pack_view(&bytes, "bazel");
     assert_anchored(
         &view,
-        &["ERROR: /workspace/src/BUILD.bazel:42:11", "Build did NOT complete successfully"],
+        &[
+            "ERROR: /workspace/src/BUILD.bazel:42:11",
+            "Build did NOT complete successfully",
+        ],
         "bazel",
     );
 }

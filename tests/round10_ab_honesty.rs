@@ -44,18 +44,25 @@ fn ab_net_is_strictly_saved_minus_refetched_delta_hits_doesnt_pollute() {
     let sb = EnvSandbox::new("ab-net-identity");
     // saved=100, refetched=30, delta_hits=999, evicted=999.
     // net MUST be 70 — delta_hits & evicted are reported but never folded in.
-    let p = write_metrics(&sb, concat!(
-        r#"{"event":"compress","session":"a","raw":1000,"shown":900,"saved":100,"delta_hits":999,"evicted":999}"#,
-        "\n",
-        r#"{"event":"expand","session":"a","tokens":30,"ok":true}"#,
-        "\n",
-    ));
+    let p = write_metrics(
+        &sb,
+        concat!(
+            r#"{"event":"compress","session":"a","raw":1000,"shown":900,"saved":100,"delta_hits":999,"evicted":999}"#,
+            "\n",
+            r#"{"event":"expand","session":"a","tokens":30,"ok":true}"#,
+            "\n",
+        ),
+    );
     let r = ab::build(&p);
     assert_eq!(r.total.saved, 100);
     assert_eq!(r.total.refetched, 30);
     assert_eq!(r.total.delta_hits, 999);
     assert_eq!(r.total.evicted, 999);
-    assert_eq!(r.total.net(), 70, "net = 100 - 30, NOT touched by delta_hits/evicted");
+    assert_eq!(
+        r.total.net(),
+        70,
+        "net = 100 - 30, NOT touched by delta_hits/evicted"
+    );
 }
 
 #[test]
@@ -63,18 +70,24 @@ fn ab_failed_expand_does_not_count_as_refetched_but_does_count_as_expand_call() 
     let sb = EnvSandbox::new("ab-failed-expand");
     // saved=100, two expand calls: one ok=true tokens=20, one ok=false tokens=50.
     // Failed expand contributes to expand_calls + failed_expands but NOT refetched.
-    let p = write_metrics(&sb, concat!(
-        r#"{"event":"compress","session":"a","raw":500,"shown":400,"saved":100,"delta_hits":0,"evicted":0}"#,
-        "\n",
-        r#"{"event":"expand","session":"a","tokens":20,"ok":true}"#,
-        "\n",
-        r#"{"event":"expand","session":"a","tokens":50,"ok":false}"#,
-        "\n",
-    ));
+    let p = write_metrics(
+        &sb,
+        concat!(
+            r#"{"event":"compress","session":"a","raw":500,"shown":400,"saved":100,"delta_hits":0,"evicted":0}"#,
+            "\n",
+            r#"{"event":"expand","session":"a","tokens":20,"ok":true}"#,
+            "\n",
+            r#"{"event":"expand","session":"a","tokens":50,"ok":false}"#,
+            "\n",
+        ),
+    );
     let r = ab::build(&p);
     assert_eq!(r.total.expand_calls, 2, "both expand calls counted");
     assert_eq!(r.total.failed_expands, 1, "one failure counted");
-    assert_eq!(r.total.refetched, 20, "only OK expand contributes refetched (the 50 is dropped)");
+    assert_eq!(
+        r.total.refetched, 20,
+        "only OK expand contributes refetched (the 50 is dropped)"
+    );
     assert_eq!(r.total.net(), 100 - 20);
 }
 
@@ -83,14 +96,20 @@ fn ab_compress_with_saved_field_missing_falls_back_to_raw_minus_shown() {
     // ab.rs:78: `if v.get("saved").is_some() { numk(&v, &["saved"]) } else { raw - shown }`.
     // Pre-fix metrics may have lacked the saved field. Pin the fallback.
     let sb = EnvSandbox::new("ab-saved-missing");
-    let p = write_metrics(&sb, concat!(
-        r#"{"event":"compress","session":"a","raw":1000,"shown":300,"delta_hits":0,"evicted":0}"#,
-        "\n",
-    ));
+    let p = write_metrics(
+        &sb,
+        concat!(
+            r#"{"event":"compress","session":"a","raw":1000,"shown":300,"delta_hits":0,"evicted":0}"#,
+            "\n",
+        ),
+    );
     let r = ab::build(&p);
     assert_eq!(r.total.raw, 1000);
     assert_eq!(r.total.shown, 300);
-    assert_eq!(r.total.saved, 700, "fallback: saved = raw - shown when field absent");
+    assert_eq!(
+        r.total.saved, 700,
+        "fallback: saved = raw - shown when field absent"
+    );
     assert_eq!(r.total.net(), 700, "and net follows the fallback");
 }
 
@@ -100,10 +119,13 @@ fn ab_compress_with_explicit_saved_overrides_raw_minus_shown_arithmetic() {
     // raw - shown (which can happen if e.g. shown counts something different),
     // we trust the explicit value. Pin this.
     let sb = EnvSandbox::new("ab-saved-explicit");
-    let p = write_metrics(&sb, concat!(
-        r#"{"event":"compress","session":"a","raw":1000,"shown":300,"saved":650,"delta_hits":0,"evicted":0}"#,
-        "\n",
-    ));
+    let p = write_metrics(
+        &sb,
+        concat!(
+            r#"{"event":"compress","session":"a","raw":1000,"shown":300,"saved":650,"delta_hits":0,"evicted":0}"#,
+            "\n",
+        ),
+    );
     let r = ab::build(&p);
     assert_eq!(r.total.saved, 650, "explicit saved overrides arithmetic");
     // raw-shown would be 700; we explicitly trust 650.
@@ -112,18 +134,21 @@ fn ab_compress_with_explicit_saved_overrides_raw_minus_shown_arithmetic() {
 #[test]
 fn ab_aggregate_equals_sum_of_session_aggregates_no_double_count() {
     let sb = EnvSandbox::new("ab-aggregate-sum");
-    let p = write_metrics(&sb, concat!(
-        r#"{"event":"compress","session":"a","raw":500,"shown":100,"saved":400,"delta_hits":2,"evicted":0}"#,
-        "\n",
-        r#"{"event":"compress","session":"b","raw":700,"shown":200,"saved":500,"delta_hits":5,"evicted":1}"#,
-        "\n",
-        r#"{"event":"compress","session":"a","raw":300,"shown":50,"saved":250,"delta_hits":1,"evicted":0}"#,
-        "\n",
-        r#"{"event":"expand","session":"a","tokens":10,"ok":true}"#,
-        "\n",
-        r#"{"event":"expand","session":"b","tokens":25,"ok":true}"#,
-        "\n",
-    ));
+    let p = write_metrics(
+        &sb,
+        concat!(
+            r#"{"event":"compress","session":"a","raw":500,"shown":100,"saved":400,"delta_hits":2,"evicted":0}"#,
+            "\n",
+            r#"{"event":"compress","session":"b","raw":700,"shown":200,"saved":500,"delta_hits":5,"evicted":1}"#,
+            "\n",
+            r#"{"event":"compress","session":"a","raw":300,"shown":50,"saved":250,"delta_hits":1,"evicted":0}"#,
+            "\n",
+            r#"{"event":"expand","session":"a","tokens":10,"ok":true}"#,
+            "\n",
+            r#"{"event":"expand","session":"b","tokens":25,"ok":true}"#,
+            "\n",
+        ),
+    );
     let r = ab::build(&p);
     // 3 compress events across 2 sessions; raw = 500 + 700 + 300 = 1500
     let sum_raw: i64 = r.sessions.iter().map(|s| s.1.raw).sum();
@@ -141,15 +166,24 @@ fn ab_aggregate_equals_sum_of_session_aggregates_no_double_count() {
 #[test]
 fn ab_sessions_sorted_by_net_descending_best_first() {
     let sb = EnvSandbox::new("ab-sort-desc");
-    let p = write_metrics(&sb, concat!(
-        r#"{"event":"compress","session":"middle","raw":1000,"shown":500,"saved":500,"delta_hits":0,"evicted":0}"#, "\n",
-        r#"{"event":"compress","session":"worst","raw":1000,"shown":900,"saved":100,"delta_hits":0,"evicted":0}"#, "\n",
-        r#"{"event":"compress","session":"best","raw":1000,"shown":100,"saved":900,"delta_hits":0,"evicted":0}"#, "\n",
-    ));
+    let p = write_metrics(
+        &sb,
+        concat!(
+            r#"{"event":"compress","session":"middle","raw":1000,"shown":500,"saved":500,"delta_hits":0,"evicted":0}"#,
+            "\n",
+            r#"{"event":"compress","session":"worst","raw":1000,"shown":900,"saved":100,"delta_hits":0,"evicted":0}"#,
+            "\n",
+            r#"{"event":"compress","session":"best","raw":1000,"shown":100,"saved":900,"delta_hits":0,"evicted":0}"#,
+            "\n",
+        ),
+    );
     let r = ab::build(&p);
     let order: Vec<&str> = r.sessions.iter().map(|(s, _)| s.as_str()).collect();
-    assert_eq!(order, vec!["best", "middle", "worst"],
-        "sorted by net descending: 900, 500, 100");
+    assert_eq!(
+        order,
+        vec!["best", "middle", "worst"],
+        "sorted by net descending: 900, 500, 100"
+    );
 }
 
 #[test]
@@ -163,9 +197,13 @@ fn ab_no_data_yet_verdict_iff_compress_events_zero() {
     assert!(txt.contains("no data yet"), "empty → no data yet");
 
     // Case 2: only expand events (no compress) → STILL "no data yet"
-    let p = write_metrics(&sb, concat!(
-        r#"{"event":"expand","session":"a","tokens":50,"ok":true}"#, "\n",
-    ));
+    let p = write_metrics(
+        &sb,
+        concat!(
+            r#"{"event":"expand","session":"a","tokens":50,"ok":true}"#,
+            "\n",
+        ),
+    );
     let r = ab::build(&p);
     let txt = ab::format(&r);
     assert!(
@@ -174,9 +212,13 @@ fn ab_no_data_yet_verdict_iff_compress_events_zero() {
     );
 
     // Case 3: one compress → NOT "no data yet" (verdict shifts to POSITIVE/NEGATIVE)
-    let p = write_metrics(&sb, concat!(
-        r#"{"event":"compress","session":"a","raw":100,"shown":50,"saved":50,"delta_hits":0,"evicted":0}"#, "\n",
-    ));
+    let p = write_metrics(
+        &sb,
+        concat!(
+            r#"{"event":"compress","session":"a","raw":100,"shown":50,"saved":50,"delta_hits":0,"evicted":0}"#,
+            "\n",
+        ),
+    );
     let r = ab::build(&p);
     let txt = ab::format(&r);
     assert!(
@@ -193,10 +235,15 @@ fn ab_zero_net_session_is_neither_positive_nor_negative_uses_negative_branch() {
     // Worth pinning explicitly because users reading the verdict need to know
     // exactly when wording flips.
     let sb = EnvSandbox::new("ab-net-zero");
-    let p = write_metrics(&sb, concat!(
-        r#"{"event":"compress","session":"a","raw":200,"shown":100,"saved":100,"delta_hits":0,"evicted":0}"#, "\n",
-        r#"{"event":"expand","session":"a","tokens":100,"ok":true}"#, "\n",
-    ));
+    let p = write_metrics(
+        &sb,
+        concat!(
+            r#"{"event":"compress","session":"a","raw":200,"shown":100,"saved":100,"delta_hits":0,"evicted":0}"#,
+            "\n",
+            r#"{"event":"expand","session":"a","tokens":100,"ok":true}"#,
+            "\n",
+        ),
+    );
     let r = ab::build(&p);
     assert_eq!(r.total.net(), 0);
     let txt = ab::format(&r);
@@ -241,8 +288,14 @@ fn bench_abc_invariant_a_ge_b_ge_c_for_each_iteration() {
     for k in 0..6 {
         let (a, b, c, unchanged) = compute_abc(k, &store, &mut ledger);
         assert!(a > 0, "iter {k}: A > 0");
-        assert!(b <= a, "iter {k}: B ({b}) must be ≤ A ({a}) — Rucksack never inflates");
-        assert!(c <= b, "iter {k}: C ({c}) must be ≤ B ({b}) — conditional never worse than stateless");
+        assert!(
+            b <= a,
+            "iter {k}: B ({b}) must be ≤ A ({a}) — Rucksack never inflates"
+        );
+        assert!(
+            c <= b,
+            "iter {k}: C ({c}) must be ≤ B ({b}) — conditional never worse than stateless"
+        );
         if k >= 1 {
             assert!(
                 unchanged > 0,
@@ -251,7 +304,10 @@ fn bench_abc_invariant_a_ge_b_ge_c_for_each_iteration() {
         }
         last_unchanged = unchanged;
     }
-    assert!(last_unchanged > 0, "final iteration has accumulated delta hits");
+    assert!(
+        last_unchanged > 0,
+        "final iteration has accumulated delta hits"
+    );
 }
 
 #[test]
@@ -262,7 +318,10 @@ fn bench_abc_cold_iteration_has_zero_delta_hits() {
     let store = Store::new(sb.join("store"));
     let mut ledger = Ledger::in_memory();
     let (_, _, _, unchanged) = compute_abc(0, &store, &mut ledger);
-    assert_eq!(unchanged, 0, "first pack with empty ledger has zero delta hits");
+    assert_eq!(
+        unchanged, 0,
+        "first pack with empty ledger has zero delta hits"
+    );
 }
 
 #[test]
@@ -279,9 +338,16 @@ fn bench_gen_file_changes_only_in_edited_handler_count() {
     assert_ne!(f1, f2);
     // Per-line diff: f1 vs f0 should differ in exactly 1 line; f2 vs f1 in
     // exactly 1 line.
-    let diff_count = |a: &str, b: &str| -> usize {
-        a.lines().zip(b.lines()).filter(|(x, y)| x != y).count()
-    };
-    assert_eq!(diff_count(&f0, &f1), 1, "iter 0→1: one handler line differs");
-    assert_eq!(diff_count(&f1, &f2), 1, "iter 1→2: one handler line differs");
+    let diff_count =
+        |a: &str, b: &str| -> usize { a.lines().zip(b.lines()).filter(|(x, y)| x != y).count() };
+    assert_eq!(
+        diff_count(&f0, &f1),
+        1,
+        "iter 0→1: one handler line differs"
+    );
+    assert_eq!(
+        diff_count(&f1, &f2),
+        1,
+        "iter 1→2: one handler line differs"
+    );
 }

@@ -35,11 +35,17 @@ fn monotonic_under_append() {
     let alphabet: Vec<char> = "abZ09 \t\n!@#éç".chars().collect();
     for _ in 0..3000 {
         let len = rng.below(40);
-        let s: String = (0..len).map(|_| alphabet[rng.below(alphabet.len())]).collect();
+        let s: String = (0..len)
+            .map(|_| alphabet[rng.below(alphabet.len())])
+            .collect();
         let base = tokens(&s);
         let extra = alphabet[rng.below(alphabet.len())];
         let longer = format!("{s}{extra}");
-        assert!(tokens(&longer) >= base, "append must not decrease tokens: {s:?}+{extra:?} ({} < {base})", tokens(&longer));
+        assert!(
+            tokens(&longer) >= base,
+            "append must not decrease tokens: {s:?}+{extra:?} ({} < {base})",
+            tokens(&longer)
+        );
     }
 }
 

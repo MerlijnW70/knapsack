@@ -6,8 +6,18 @@ use knapsack::{handle, Ledger, Residency};
 use std::path::PathBuf;
 
 fn tmp(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    std::env::temp_dir().join(format!("knapsack-ledger-{}-{}-{}", tag, std::process::id(), t)).join("s.tsv")
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir()
+        .join(format!(
+            "knapsack-ledger-{}-{}-{}",
+            tag,
+            std::process::id(),
+            t
+        ))
+        .join("s.tsv")
 }
 
 #[test]
@@ -40,7 +50,11 @@ fn evicted_state_persists_and_is_not_counted() {
     }
     let l = Ledger::load(p);
     assert_eq!(l.residency(&h), Residency::Evicted);
-    assert_eq!(l.resident_tokens(), 0, "evicted handles are not counted as resident");
+    assert_eq!(
+        l.resident_tokens(),
+        0,
+        "evicted handles are not counted as resident"
+    );
 }
 
 #[test]
@@ -49,10 +63,15 @@ fn corrupt_session_file_loads_gracefully() {
     std::fs::create_dir_all(p.parent().unwrap()).unwrap();
     let good = handle(b"good");
     // one valid line surrounded by junk: no-tab line, non-numeric field, too-few fields, blank.
-    let content = format!("oops no tabs here\n{good}\t0\t3\t42\nks_bad\tNOTNUM\t1\t1\nks_short\t0\t1\n\n");
+    let content =
+        format!("oops no tabs here\n{good}\t0\t3\t42\nks_bad\tNOTNUM\t1\t1\nks_short\t0\t1\n\n");
     std::fs::write(&p, content).unwrap();
     let l = Ledger::load(p); // must not panic
-    assert_eq!(l.residency(&good), Residency::Resident, "the one valid line must load");
+    assert_eq!(
+        l.residency(&good),
+        Residency::Resident,
+        "the one valid line must load"
+    );
     assert_eq!(l.resident_tokens(), 42);
     assert_eq!(l.len(), 1, "every malformed line is skipped");
 }
@@ -77,5 +96,9 @@ fn enforce_budget_evicts_oldest_first() {
         assert_eq!(l.residency(h), Residency::Resident, "newest two kept");
     }
     assert_eq!(l.resident_tokens(), 20);
-    assert_eq!(l.enforce_budget(25), 0, "already within budget -> no further eviction");
+    assert_eq!(
+        l.enforce_budget(25),
+        0,
+        "already within budget -> no further eviction"
+    );
 }

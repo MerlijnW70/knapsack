@@ -17,8 +17,16 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 fn tmp_dir(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let d = std::env::temp_dir().join(format!("knapsack-transcript-{}-{}-{}", tag, std::process::id(), t));
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let d = std::env::temp_dir().join(format!(
+        "knapsack-transcript-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ));
     std::fs::create_dir_all(&d).unwrap();
     d
 }
@@ -38,7 +46,9 @@ fn write_transcript(dir: &Path, name: &str, lines: &[&str]) -> PathBuf {
 fn many_lines(n: usize) -> Vec<u8> {
     let mut s = String::new();
     for i in 0..n {
-        s.push_str(&format!("plain log line number {i}, some routine content\n"));
+        s.push_str(&format!(
+            "plain log line number {i}, some routine content\n"
+        ));
     }
     s.into_bytes()
 }
@@ -48,7 +58,10 @@ fn many_lines(n: usize) -> Vec<u8> {
 #[test]
 fn scanner_returns_ok_false_for_missing_file() {
     let r = transcript::scan(&PathBuf::from("/does/not/exist/abc.jsonl"));
-    assert!(!r.ok, "missing transcript -> ok=false -> caller falls back to ledger");
+    assert!(
+        !r.ok,
+        "missing transcript -> ok=false -> caller falls back to ledger"
+    );
     assert!(r.resident.is_empty());
     assert!(r.last_boundary.is_none());
 }
@@ -78,7 +91,10 @@ fn scanner_tolerates_corrupt_lines_returns_ok_true() {
     );
     let r = transcript::scan(&p);
     assert!(r.ok, "at least one parseable line -> ok=true");
-    assert!(r.resident.contains("ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "valid line still contributed");
+    assert!(
+        r.resident.contains("ks2_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        "valid line still contributed"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -96,9 +112,18 @@ fn scanner_drops_handles_before_clear_keeps_handles_after() {
     );
     let r = transcript::scan(&p);
     assert!(r.ok);
-    assert_eq!(r.last_boundary.map(|(b, _)| b), Some(transcript::Boundary::Clear));
-    assert!(!r.resident.contains("ks2_11111111111111111111111111111111"), "pre-/clear handle not resident");
-    assert!(r.resident.contains("ks2_22222222222222222222222222222222"), "post-/clear handle resident");
+    assert_eq!(
+        r.last_boundary.map(|(b, _)| b),
+        Some(transcript::Boundary::Clear)
+    );
+    assert!(
+        !r.resident.contains("ks2_11111111111111111111111111111111"),
+        "pre-/clear handle not resident"
+    );
+    assert!(
+        r.resident.contains("ks2_22222222222222222222222222222222"),
+        "post-/clear handle resident"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -115,7 +140,10 @@ fn scanner_detects_compaction_boundary() {
         ],
     );
     let r = transcript::scan(&p);
-    assert_eq!(r.last_boundary.map(|(b, _)| b), Some(transcript::Boundary::Compaction));
+    assert_eq!(
+        r.last_boundary.map(|(b, _)| b),
+        Some(transcript::Boundary::Compaction)
+    );
     assert!(!r.resident.contains("ks2_33333333333333333333333333333333"));
     assert!(r.resident.contains("ks2_44444444444444444444444444444444"));
     let _ = std::fs::remove_dir_all(&dir);
@@ -154,7 +182,10 @@ fn pack_emits_backref_when_no_transcript_provided() {
     let r1 = pack(&bytes, ContentType::Log, &store, &mut ledger, 0);
     let r2 = pack(&bytes, ContentType::Log, &store, &mut ledger, 1);
     assert_eq!(r1.delta_hits, 0, "cold");
-    assert!(r2.delta_hits > 0, "unchanged re-read should backref without transcript gating");
+    assert!(
+        r2.delta_hits > 0,
+        "unchanged re-read should backref without transcript gating"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -171,7 +202,14 @@ fn pack_drops_backrefs_when_transcript_says_handle_is_gone() {
 
     let _r1 = pack(&bytes, ContentType::Log, &store, &mut ledger, 0);
     let empty: HashSet<String> = HashSet::new(); // transcript says: nothing resident
-    let r2 = pack_with_transcript(&bytes, ContentType::Log, &store, &mut ledger, 1, Some(&empty));
+    let r2 = pack_with_transcript(
+        &bytes,
+        ContentType::Log,
+        &store,
+        &mut ledger,
+        1,
+        Some(&empty),
+    );
     assert_eq!(
         r2.delta_hits, 0,
         "post-/clear: ledger thinks resident, transcript says no -> NO backrefs (correctness > reduction)"
@@ -192,7 +230,14 @@ fn pack_keeps_backrefs_when_transcript_confirms_residency() {
     // Collect every handle from r1.handles into the resident set so the gate passes
     // for ALL blocks; backref behaviour should now match the no-gate baseline.
     let resident: HashSet<String> = r1.handles.iter().cloned().collect();
-    let r2 = pack_with_transcript(&bytes, ContentType::Log, &store, &mut ledger, 1, Some(&resident));
+    let r2 = pack_with_transcript(
+        &bytes,
+        ContentType::Log,
+        &store,
+        &mut ledger,
+        1,
+        Some(&resident),
+    );
     assert!(
         r2.delta_hits > 0,
         "transcript confirms residency -> backrefs preserved; got delta_hits={}",
@@ -223,9 +268,20 @@ fn pack_view_never_names_a_non_resident_handle() {
         .iter()
         .map(|&(s, e)| knapsack::hash::handle(&bytes[s..e]))
         .collect();
-    let half: HashSet<String> = block_handles.iter().take(block_handles.len() / 2).cloned().collect();
+    let half: HashSet<String> = block_handles
+        .iter()
+        .take(block_handles.len() / 2)
+        .cloned()
+        .collect();
 
-    let r2 = pack_with_transcript(&bytes, ContentType::Log, &store, &mut ledger, 1, Some(&half));
+    let r2 = pack_with_transcript(
+        &bytes,
+        ContentType::Log,
+        &store,
+        &mut ledger,
+        1,
+        Some(&half),
+    );
 
     // Scan the emitted view for every BACKREF marker (the "already in context"
     // residency claim that the transcript gate exists to police). NOT every `recall`
@@ -240,7 +296,10 @@ fn pack_view_never_names_a_non_resident_handle() {
         }
         if let Some(start) = line.find("recall ks") {
             let after = &line[start + "recall ".len()..];
-            let h: String = after.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+            let h: String = after
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
             assert!(
                 half.contains(&h),
                 "compact view names a NON-resident handle in an `already in context` claim: `{}` in line `{}`",
@@ -274,8 +333,14 @@ fn fallback_when_scanner_says_ok_false_uses_ledger_only() {
     pack_with_transcript(&bytes, ContentType::Log, &store, &mut ledger_b, 0, None);
     let b = pack_with_transcript(&bytes, ContentType::Log, &store, &mut ledger_b, 1, None);
 
-    assert_eq!(a.delta_hits, b.delta_hits, "None gate must behave identically to pack()");
-    assert_eq!(a.shown_tokens_est, b.shown_tokens_est, "compact view sizes must match too");
+    assert_eq!(
+        a.delta_hits, b.delta_hits,
+        "None gate must behave identically to pack()"
+    );
+    assert_eq!(
+        a.shown_tokens_est, b.shown_tokens_est,
+        "compact view sizes must match too"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

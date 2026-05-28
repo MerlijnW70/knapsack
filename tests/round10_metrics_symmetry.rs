@@ -67,9 +67,14 @@ fn negative_net_session_renders_identically_on_mcp_and_cli() {
 
     let cli = cli_metrics_text(None);
     let mcp = rpc_metrics_text(None);
-    assert_eq!(cli, mcp, "negative-net text must match byte-for-byte across surfaces");
-    assert!(cli.contains("-200") || cli.contains("(-200)") || cli.contains("net NEGATIVE"),
-        "verdict reflects negative net somewhere in:\n{cli}");
+    assert_eq!(
+        cli, mcp,
+        "negative-net text must match byte-for-byte across surfaces"
+    );
+    assert!(
+        cli.contains("-200") || cli.contains("(-200)") || cli.contains("net NEGATIVE"),
+        "verdict reflects negative net somewhere in:\n{cli}"
+    );
 }
 
 // =====================================================================
@@ -82,7 +87,12 @@ fn huge_numeric_values_render_identically() {
     // 100 compress events each at ~1 G tokens → 100 G total; well within i64.
     for _ in 0..100 {
         metrics::record_compress(
-            "whale", 1_000_000_000, 100_000_000, 900_000_000, 1_000_000, 0,
+            "whale",
+            1_000_000_000,
+            100_000_000,
+            900_000_000,
+            1_000_000,
+            0,
         );
     }
     metrics::record_expand("whale", 999_999_999, true);
@@ -91,8 +101,10 @@ fn huge_numeric_values_render_identically() {
     let mcp = rpc_metrics_text(None);
     assert_eq!(cli, mcp, "huge-number formatting must match");
     // Sanity: numbers actually appear (commafy may insert thousands separators)
-    assert!(cli.contains("100,000,000,000") || cli.contains("100000000000"),
-        "raw aggregate at 100 G appears in:\n{cli}");
+    assert!(
+        cli.contains("100,000,000,000") || cli.contains("100000000000"),
+        "raw aggregate at 100 G appears in:\n{cli}"
+    );
 }
 
 // =====================================================================
@@ -130,7 +142,10 @@ fn filter_with_no_matches_renders_identically_and_shows_zero_state() {
     // Filtered view should still render the column labels (so users know it's
     // a real query that just had no data), and the filtered NET should be 0
     // / "no data yet" verdict.
-    assert!(cli.contains("compress events"), "filtered view keeps labels: \n{cli}");
+    assert!(
+        cli.contains("compress events"),
+        "filtered view keeps labels: \n{cli}"
+    );
 }
 
 // =====================================================================
@@ -144,18 +159,27 @@ fn malformed_lines_dont_cause_mcp_cli_drift() {
     // 3 valid compress lines, with a corrupt line in the middle and a
     // missing-event line at the end.
     let content = concat!(
-        r#"{"event":"compress","session":"a","raw":100,"shown":50,"saved":50,"delta_hits":0,"evicted":0}"#, "\n",
-        "garbage line that won't parse", "\n",
-        r#"{"event":"compress","session":"a","raw":200,"shown":75,"saved":125,"delta_hits":1,"evicted":0}"#, "\n",
-        r#"{"event":"expand","session":"a","tokens":30,"ok":true}"#, "\n",
-        r#"{"event":"compress","session":"a","raw":300,"shown":100,"saved":200,"delta_hits":2,"evicted":0}"#, "\n",
-        r#"{"no_event_field":"oops"}"#, "\n",
+        r#"{"event":"compress","session":"a","raw":100,"shown":50,"saved":50,"delta_hits":0,"evicted":0}"#,
+        "\n",
+        "garbage line that won't parse",
+        "\n",
+        r#"{"event":"compress","session":"a","raw":200,"shown":75,"saved":125,"delta_hits":1,"evicted":0}"#,
+        "\n",
+        r#"{"event":"expand","session":"a","tokens":30,"ok":true}"#,
+        "\n",
+        r#"{"event":"compress","session":"a","raw":300,"shown":100,"saved":200,"delta_hits":2,"evicted":0}"#,
+        "\n",
+        r#"{"no_event_field":"oops"}"#,
+        "\n",
     );
     std::fs::write(&metrics_path, content).unwrap();
 
     let cli = cli_metrics_text(None);
     let mcp = rpc_metrics_text(None);
-    assert_eq!(cli, mcp, "MCP and CLI must drop the same lines and produce identical text");
+    assert_eq!(
+        cli, mcp,
+        "MCP and CLI must drop the same lines and produce identical text"
+    );
 
     // Sanity check: 3 valid compress events, saved = 50+125+200 = 375.
     let summary = metrics::summary();
@@ -171,9 +195,9 @@ fn malformed_lines_dont_cause_mcp_cli_drift() {
 fn failed_expand_attribution_renders_identically_on_both_surfaces() {
     let _sb = EnvSandbox::new("failed-expand-sym");
     metrics::record_compress("flaky", 500, 100, 400, 0, 0);
-    metrics::record_expand("flaky", 50, true);   // ok
-    metrics::record_expand("flaky", 75, false);  // fail
-    metrics::record_expand("flaky", 25, true);   // ok
+    metrics::record_expand("flaky", 50, true); // ok
+    metrics::record_expand("flaky", 75, false); // fail
+    metrics::record_expand("flaky", 25, true); // ok
 
     let cli = cli_metrics_text(None);
     let mcp = rpc_metrics_text(None);
@@ -227,6 +251,9 @@ fn per_session_filter_removes_other_session_numbers_consistently() {
     // be a beta-leak.
     // We allow "1000" to appear (alpha's raw); just check that the formatted
     // total doesn't include 1500 (alpha + beta merged).
-    assert!(!cli_alpha.contains("1,500"), "filter must not leak beta totals into alpha view");
+    assert!(
+        !cli_alpha.contains("1,500"),
+        "filter must not leak beta totals into alpha view"
+    );
     assert!(!cli_alpha.contains(" 1500 "), "no merged total either");
 }

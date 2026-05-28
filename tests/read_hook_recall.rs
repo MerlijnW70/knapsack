@@ -16,7 +16,9 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 fn env_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner())
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 struct EnvScope {
@@ -26,8 +28,14 @@ struct EnvScope {
 impl EnvScope {
     fn new(dir: &std::path::Path) -> Self {
         let lock = env_lock();
-        let keys = ["KNAPSACK_STORE", "KNAPSACK_READ_LOG", "KNAPSACK_READ_CACHE", "KNAPSACK_METRICS"];
-        let prior: Vec<(&str, Option<_>)> = keys.iter().map(|k| (*k, std::env::var_os(k))).collect();
+        let keys = [
+            "KNAPSACK_STORE",
+            "KNAPSACK_READ_LOG",
+            "KNAPSACK_READ_CACHE",
+            "KNAPSACK_METRICS",
+        ];
+        let prior: Vec<(&str, Option<_>)> =
+            keys.iter().map(|k| (*k, std::env::var_os(k))).collect();
         std::env::set_var("KNAPSACK_STORE", dir.join("store"));
         std::env::set_var("KNAPSACK_READ_LOG", dir.join("read_hook.jsonl"));
         std::env::set_var("KNAPSACK_READ_CACHE", dir.join("cache"));
@@ -47,8 +55,16 @@ impl Drop for EnvScope {
 }
 
 fn tmp(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let d = std::env::temp_dir().join(format!("knapsack-rh-recall-{}-{}-{}", tag, std::process::id(), t));
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let d = std::env::temp_dir().join(format!(
+        "knapsack-rh-recall-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ));
     std::fs::create_dir_all(&d).unwrap();
     d
 }
@@ -69,7 +85,10 @@ fn big_compressible(dir: &std::path::Path, name: &str) -> PathBuf {
 fn make_event(file_path: &str, session_id: Option<&str>) -> Json {
     let mut obj = vec![
         ("tool_name".into(), Json::Str("Read".into())),
-        ("tool_input".into(), Json::Obj(vec![("file_path".into(), Json::Str(file_path.into()))])),
+        (
+            "tool_input".into(),
+            Json::Obj(vec![("file_path".into(), Json::Str(file_path.into()))]),
+        ),
     ];
     if let Some(s) = session_id {
         obj.push(("session_id".into(), Json::Str(s.into())));
@@ -104,12 +123,17 @@ fn every_handle_in_the_view_resolves_byte_exact() {
     let decision = decide_with_gate(true, &evt);
     let redirect_to = match decision {
         ReadDecision::Redirect { redirect_to, .. } => redirect_to,
-        ReadDecision::PassThrough { log } => panic!("expected Redirect, got PassThrough({:?})", log.reason),
+        ReadDecision::PassThrough { log } => {
+            panic!("expected Redirect, got PassThrough({:?})", log.reason)
+        }
     };
 
     let view = std::fs::read_to_string(&redirect_to).expect("view exists");
     let handles = handles_in_view(&view);
-    assert!(!handles.is_empty(), "view must advertise at least one handle");
+    assert!(
+        !handles.is_empty(),
+        "view must advertise at least one handle"
+    );
 
     // Open the SAME store the hook just wrote into and verify every handle resolves
     // to non-empty bytes that hash back to its handle.
@@ -126,14 +150,29 @@ fn every_handle_in_the_view_resolves_byte_exact() {
             }
         }
     }
-    assert!(missing.is_empty(), "view advertises {} handles that don't resolve: {:?}", missing.len(), &missing[..missing.len().min(3)]);
-    assert!(wrong_hash.is_empty(), "view advertises {} handles that resolve to wrong bytes: {:?}", wrong_hash.len(), &wrong_hash[..wrong_hash.len().min(3)]);
+    assert!(
+        missing.is_empty(),
+        "view advertises {} handles that don't resolve: {:?}",
+        missing.len(),
+        &missing[..missing.len().min(3)]
+    );
+    assert!(
+        wrong_hash.is_empty(),
+        "view advertises {} handles that resolve to wrong bytes: {:?}",
+        wrong_hash.len(),
+        &wrong_hash[..wrong_hash.len().min(3)]
+    );
 
     // The whole-file handle specifically (the one the header points at) must round-
     // trip BYTE-EXACT against the original source.
     let whole_handle = knapsack::hash::handle(&bytes);
-    let recovered = store.get(&whole_handle).expect("whole-file handle in store");
-    assert_eq!(recovered, bytes, "whole-file recall must equal the original byte-for-byte");
+    let recovered = store
+        .get(&whole_handle)
+        .expect("whole-file handle in store");
+    assert_eq!(
+        recovered, bytes,
+        "whole-file recall must equal the original byte-for-byte"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -169,13 +208,24 @@ fn view_header_advertises_a_resolvable_whole_file_handle() {
         .and_then(|s| s.split('`').next())
         .map(|s| s.trim().to_string())
         .expect("header line contains a parseable handle");
-    assert!(h.starts_with("ks2_"), "header handle must be a ks2 handle, got {h:?}");
-    assert!(knapsack::hash::is_valid_handle(&h), "header handle must be syntactically valid: {h:?}");
+    assert!(
+        h.starts_with("ks2_"),
+        "header handle must be a ks2 handle, got {h:?}"
+    );
+    assert!(
+        knapsack::hash::is_valid_handle(&h),
+        "header handle must be syntactically valid: {h:?}"
+    );
 
     // Resolve it AGAINST THE SAME store the hook wrote into.
     let store = Store::new(dir.join("store"));
-    let recovered = store.get(&h).expect("header-advertised handle must resolve");
-    assert_eq!(recovered, bytes, "header-advertised handle must return the ORIGINAL bytes byte-exact");
+    let recovered = store
+        .get(&h)
+        .expect("header-advertised handle must resolve");
+    assert_eq!(
+        recovered, bytes,
+        "header-advertised handle must return the ORIGINAL bytes byte-exact"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -199,17 +249,26 @@ fn cache_hit_re_populates_store_after_a_wipe() {
     let whole_handle = knapsack::hash::handle(&bytes);
     {
         let store = Store::new(dir.join("store"));
-        assert!(store.get(&whole_handle).is_some(), "store should have the whole-file handle after the first read");
+        assert!(
+            store.get(&whole_handle).is_some(),
+            "store should have the whole-file handle after the first read"
+        );
     }
 
     // Now nuke the store dir (NOT the cache). Verify the next read re-populates.
     std::fs::remove_dir_all(dir.join("store")).expect("can remove store");
-    assert!(Store::new(dir.join("store")).get(&whole_handle).is_none(), "store really empty");
+    assert!(
+        Store::new(dir.join("store")).get(&whole_handle).is_none(),
+        "store really empty"
+    );
 
     // Second read: cache hit. Should re-stamp the store from the source bytes.
     let _ = decide_with_gate(true, &evt);
     let store = Store::new(dir.join("store"));
-    assert!(store.get(&whole_handle).is_some(), "cache-hit path must re-stamp the store");
+    assert!(
+        store.get(&whole_handle).is_some(),
+        "cache-hit path must re-stamp the store"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -251,28 +310,70 @@ fn two_paths_same_content_get_distinct_cache_files_with_correct_headers() {
     };
 
     // Two distinct cache files, sharing the content-digest prefix.
-    let name_a = redirect_a.file_name().unwrap().to_string_lossy().into_owned();
-    let name_b = redirect_b.file_name().unwrap().to_string_lossy().into_owned();
+    let name_a = redirect_a
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let name_b = redirect_b
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
     assert_ne!(name_a, name_b, "two paths must get distinct cache files");
     let prefix_a = name_a.split('_').next().unwrap();
     let prefix_b = name_b.split('_').next().unwrap();
-    assert_eq!(prefix_a, prefix_b, "shared content -> shared digest prefix in both cache filenames");
+    assert_eq!(
+        prefix_a, prefix_b,
+        "shared content -> shared digest prefix in both cache filenames"
+    );
 
     // Each cache file's "Original file:" header must name ITS OWN path.
     let view_a = std::fs::read_to_string(&redirect_a).unwrap();
     let view_b = std::fs::read_to_string(&redirect_b).unwrap();
-    let header_a = view_a.lines().find(|l| l.starts_with("<!-- Original file: ")).expect("header A");
-    let header_b = view_b.lines().find(|l| l.starts_with("<!-- Original file: ")).expect("header B");
-    assert!(header_a.contains(path_a.to_str().unwrap()), "view A header must name path A, got: {header_a}");
-    assert!(header_b.contains(path_b.to_str().unwrap()), "view B header must name path B, got: {header_b}");
-    assert!(!header_a.contains(path_b.to_str().unwrap()), "view A must NOT name path B");
-    assert!(!header_b.contains(path_a.to_str().unwrap()), "view B must NOT name path A");
+    let header_a = view_a
+        .lines()
+        .find(|l| l.starts_with("<!-- Original file: "))
+        .expect("header A");
+    let header_b = view_b
+        .lines()
+        .find(|l| l.starts_with("<!-- Original file: "))
+        .expect("header B");
+    assert!(
+        header_a.contains(path_a.to_str().unwrap()),
+        "view A header must name path A, got: {header_a}"
+    );
+    assert!(
+        header_b.contains(path_b.to_str().unwrap()),
+        "view B header must name path B, got: {header_b}"
+    );
+    assert!(
+        !header_a.contains(path_b.to_str().unwrap()),
+        "view A must NOT name path B"
+    );
+    assert!(
+        !header_b.contains(path_a.to_str().unwrap()),
+        "view B must NOT name path A"
+    );
 
     // Store dedup is preserved: both views advertise the SAME whole-file handle
     // (which expands to the shared content byte-exact).
-    let h_a = view_a.lines().find_map(|l| l.split("knapsack expand ").nth(1)).and_then(|s| s.split('`').next()).unwrap().to_string();
-    let h_b = view_b.lines().find_map(|l| l.split("knapsack expand ").nth(1)).and_then(|s| s.split('`').next()).unwrap().to_string();
-    assert_eq!(h_a, h_b, "both views must advertise the SAME store handle (content dedup is intact)");
+    let h_a = view_a
+        .lines()
+        .find_map(|l| l.split("knapsack expand ").nth(1))
+        .and_then(|s| s.split('`').next())
+        .unwrap()
+        .to_string();
+    let h_b = view_b
+        .lines()
+        .find_map(|l| l.split("knapsack expand ").nth(1))
+        .and_then(|s| s.split('`').next())
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        h_a, h_b,
+        "both views must advertise the SAME store handle (content dedup is intact)"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -303,7 +404,11 @@ fn markdown_routes_through_pack_doc_not_structural_log() {
         for _ in 0..6 {
             writeln!(f, "{long_sentence}\n").unwrap();
         }
-        writeln!(f, "```rust\nfn handler() -> Result<u64, Error> {{ Ok(0) }}\n```\n").unwrap();
+        writeln!(
+            f,
+            "```rust\nfn handler() -> Result<u64, Error> {{ Ok(0) }}\n```\n"
+        )
+        .unwrap();
     }
     drop(f);
     let bytes = std::fs::read(&md_path).unwrap();
@@ -312,7 +417,10 @@ fn markdown_routes_through_pack_doc_not_structural_log() {
     let redirect_to = match decide_with_gate(true, &evt) {
         ReadDecision::Redirect { redirect_to, .. } => redirect_to,
         ReadDecision::PassThrough { log } => {
-            panic!("expected long-prose .md to redirect, got pass-through with reason {:?}", log.reason)
+            panic!(
+                "expected long-prose .md to redirect, got pass-through with reason {:?}",
+                log.reason
+            )
         }
     };
     let view = std::fs::read_to_string(&redirect_to).unwrap();
@@ -350,7 +458,10 @@ fn markdown_routes_through_pack_doc_not_structural_log() {
         .expect("header handle parseable");
     let store = Store::new(dir.join("store"));
     let recovered = store.get(&h).expect("whole-file handle in store");
-    assert_eq!(recovered, bytes, "whole-file recall must equal the source byte-exact");
+    assert_eq!(
+        recovered, bytes,
+        "whole-file recall must equal the source byte-exact"
+    );
 
     // Every `ks-recall` handle in the body should ALSO be the same whole-file
     // handle (pack_doc puts only one handle in the store; line ranges slice it).
@@ -361,8 +472,15 @@ fn markdown_routes_through_pack_doc_not_structural_log() {
             rest.split_whitespace().next().map(|s| s.to_string())
         })
         .collect();
-    assert_eq!(all_ks_recall.len(), 1, "pack_doc elisions should all reference one handle");
-    assert!(all_ks_recall.contains(&h), "ks-recall handles must match the header's whole-file handle");
+    assert_eq!(
+        all_ks_recall.len(),
+        1,
+        "pack_doc elisions should all reference one handle"
+    );
+    assert!(
+        all_ks_recall.contains(&h),
+        "ks-recall handles must match the header's whole-file handle"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -382,9 +500,18 @@ fn header_no_longer_says_experimental_or_default_off() {
     };
     let view = std::fs::read_to_string(&redirect_to).unwrap();
     let header_block: String = view.lines().take(8).collect::<Vec<_>>().join("\n");
-    assert!(!header_block.contains("EXPERIMENTAL"), "view header must not advertise EXPERIMENTAL:\n{header_block}");
-    assert!(!header_block.contains("default-off"), "view header must not say default-off:\n{header_block}");
-    assert!(!header_block.contains("(when packed)"), "header must not say '(when packed)' — the handle is always packed now:\n{header_block}");
+    assert!(
+        !header_block.contains("EXPERIMENTAL"),
+        "view header must not advertise EXPERIMENTAL:\n{header_block}"
+    );
+    assert!(
+        !header_block.contains("default-off"),
+        "view header must not say default-off:\n{header_block}"
+    );
+    assert!(
+        !header_block.contains("(when packed)"),
+        "header must not say '(when packed)' — the handle is always packed now:\n{header_block}"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

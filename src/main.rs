@@ -218,7 +218,10 @@ fn main() {
                 Some(s) => match parse_range(s) {
                     Some(r) => Some(r),
                     None => {
-                        eprintln!("knapsack: --lines expects A-B (1-based inclusive), got: {}", knapsack::hash::display_handle(s));
+                        eprintln!(
+                            "knapsack: --lines expects A-B (1-based inclusive), got: {}",
+                            knapsack::hash::display_handle(s)
+                        );
                         exit(2);
                     }
                 },
@@ -226,7 +229,10 @@ fn main() {
             let context: usize = match flag(rest, "--context") {
                 None => 0,
                 Some(s) => s.parse().unwrap_or_else(|_| {
-                    eprintln!("knapsack: --context expects a non-negative integer, got: {}", knapsack::hash::display_handle(s));
+                    eprintln!(
+                        "knapsack: --context expects a non-negative integer, got: {}",
+                        knapsack::hash::display_handle(s)
+                    );
                     exit(2);
                 }),
             };
@@ -286,7 +292,9 @@ fn main() {
             };
             let oldb = read_file(&old);
             let newb = read_file(&new);
-            let store = knapsack::Store::new(std::env::temp_dir().join(format!("knapsack-delta-{}", std::process::id())));
+            let store = knapsack::Store::new(
+                std::env::temp_dir().join(format!("knapsack-delta-{}", std::process::id())),
+            );
             let mut ledger = knapsack::Ledger::in_memory();
             let ct = detect(&oldb, Some(&old));
             knapsack::pack(&oldb, ct, &store, &mut ledger, 0);
@@ -308,7 +316,9 @@ fn main() {
         "metrics" => println!("{}", metrics::report()),
 
         "ab" => {
-            let kn = flag(rest, "--knapsack").map(std::path::PathBuf::from).unwrap_or_else(config::metrics_path);
+            let kn = flag(rest, "--knapsack")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::metrics_path);
             print!("{}", knapsack::ab::format(&knapsack::ab::build(&kn)));
         }
 
@@ -351,7 +361,10 @@ fn main() {
             let n: usize = match rest.first() {
                 None => 10,
                 Some(s) => s.parse().unwrap_or_else(|_| {
-                    eprintln!("knapsack: why-last expects a non-negative integer, got: {}", knapsack::hash::display_handle(s));
+                    eprintln!(
+                        "knapsack: why-last expects a non-negative integer, got: {}",
+                        knapsack::hash::display_handle(s)
+                    );
                     exit(2);
                 }),
             };
@@ -385,7 +398,10 @@ fn main() {
                 }
             }
         }
-        "uninstall" => print!("{}", knapsack::install::uninstall(rest.iter().any(|a| a == "--purge"))),
+        "uninstall" => print!(
+            "{}",
+            knapsack::install::uninstall(rest.iter().any(|a| a == "--purge"))
+        ),
         _ => usage(),
     }
 }
@@ -414,8 +430,8 @@ fn run_pack_stdin(path: &str, rest: &[String]) {
         _ => Some(detect(&bytes, None)),
     };
     let _ = path; // present only as the literal "-"; never used to read a file here
-    // Optional transcript path from the hook; pack_output treats unreadable/missing
-    // as no-gating, so we don't need to validate it here.
+                  // Optional transcript path from the hook; pack_output treats unreadable/missing
+                  // as no-gating, so we don't need to validate it here.
     let transcript_path = flag(rest, "--transcript").map(std::path::PathBuf::from);
     let r = pack_output(PackRequest {
         session_id: session,
@@ -453,11 +469,17 @@ fn run_why_last(n: usize) {
         println!("knapsack why-last: no entries in {}", log.display());
         if !knapsack::config::read_hook_enabled() {
             println!();
-            println!("  (Read hook is OFF — `KNAPSACK_READ_HOOK=0` is set; unset it to re-enable.)");
+            println!(
+                "  (Read hook is OFF — `KNAPSACK_READ_HOOK=0` is set; unset it to re-enable.)"
+            );
         }
         return;
     }
-    println!("knapsack why-last  ({} entries from {})", entries.len(), log.display());
+    println!(
+        "knapsack why-last  ({} entries from {})",
+        entries.len(),
+        log.display()
+    );
     println!();
     for e in &entries {
         let path = e.path.as_deref().unwrap_or("");
@@ -466,8 +488,19 @@ fn run_why_last(n: usize) {
             (Some(r), Some(v)) if r > 0 => format!("  {}->{} tok", r, v),
             _ => String::new(),
         };
-        let note = e.note.as_deref().map(|n| format!("  [{}]", n)).unwrap_or_default();
-        println!("  {:<22}  {:<9} {}{}{}", e.reason.as_wire(), bytes, path, savings, note);
+        let note = e
+            .note
+            .as_deref()
+            .map(|n| format!("  [{}]", n))
+            .unwrap_or_default();
+        println!(
+            "  {:<22}  {:<9} {}{}{}",
+            e.reason.as_wire(),
+            bytes,
+            path,
+            savings,
+            note
+        );
     }
 }
 
@@ -483,7 +516,9 @@ fn run_transcript_inspect(path: &std::path::Path) {
         println!("  status:           DISABLED — transcript unreadable or empty");
         println!("  fallback:         ledger-only residency (safe default)");
         println!();
-        println!("  Provide a valid Claude Code JSONL transcript to see boundary + resident analysis.");
+        println!(
+            "  Provide a valid Claude Code JSONL transcript to see boundary + resident analysis."
+        );
         return;
     }
     println!("  status:           ENABLED");
@@ -614,7 +649,8 @@ fn run_pack_doc(path: &str, rest: &[String]) {
     let store = knapsack::Store::new(config::store_dir());
     let r = knapsack::pack_doc::pack_doc(path, &bytes, &store);
 
-    let out_path = output_override.unwrap_or_else(|| knapsack::pack_doc::sidecar_path(std::path::Path::new(path)));
+    let out_path = output_override
+        .unwrap_or_else(|| knapsack::pack_doc::sidecar_path(std::path::Path::new(path)));
 
     // SAFETY: the pack contract says "never mutates the original file by default."
     // `--output` was a side-channel around that — pointing it at the source path
@@ -623,9 +659,10 @@ fn run_pack_doc(path: &str, rest: &[String]) {
     // view. We canonicalize both sides; if they resolve to the same on-disk
     // file, refuse loudly. (Canonicalize can fail when out_path doesn't exist
     // yet, which is exactly the safe case — no existing file to overwrite.)
-    if let (Ok(src_canon), Ok(out_canon)) =
-        (std::fs::canonicalize(path), std::fs::canonicalize(&out_path))
-    {
+    if let (Ok(src_canon), Ok(out_canon)) = (
+        std::fs::canonicalize(path),
+        std::fs::canonicalize(&out_path),
+    ) {
         if src_canon == out_canon {
             eprintln!(
                 "knapsack: --output {} points at the SAME file as the source. Packing would overwrite the original document. Pass a different --output path (or omit --output to use the default side-car `<name>.knapsack.<ext>`).",
@@ -657,7 +694,10 @@ fn run_pack_doc(path: &str, rest: &[String]) {
         println!("Saved:    n/a (empty input)");
     }
     println!("Elisions: {}", r.elisions);
-    println!("Exact original: recoverable via `knapsack expand {}`", r.handle);
+    println!(
+        "Exact original: recoverable via `knapsack expand {}`",
+        r.handle
+    );
     println!();
 
     if dry_run {

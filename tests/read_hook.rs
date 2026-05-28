@@ -22,7 +22,9 @@ fn env_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     // PoisonError is fine here — a poisoned lock just means a previous test panicked
     // while holding it; the env state is restored by EnvGuard's Drop either way.
-    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner())
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 /// RAII guard that locks the env mutex and restores the prior values of the read-hook
@@ -69,14 +71,23 @@ impl Drop for EnvGuard {
 }
 
 fn tmp(tag: &str) -> PathBuf {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let d = std::env::temp_dir().join(format!("knapsack-readhook-{}-{}-{}", tag, std::process::id(), t));
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let d = std::env::temp_dir().join(format!(
+        "knapsack-readhook-{}-{}-{}",
+        tag,
+        std::process::id(),
+        t
+    ));
     std::fs::create_dir_all(&d).unwrap();
     d
 }
 
 fn make_event(file_path: &str, extra_fields: &[(&str, Json)]) -> Json {
-    let mut tool_input: Vec<(String, Json)> = vec![("file_path".into(), Json::Str(file_path.into()))];
+    let mut tool_input: Vec<(String, Json)> =
+        vec![("file_path".into(), Json::Str(file_path.into()))];
     for (k, v) in extra_fields {
         tool_input.push((k.to_string(), v.clone()));
     }
@@ -89,14 +100,18 @@ fn make_event(file_path: &str, extra_fields: &[(&str, Json)]) -> Json {
 fn unwrap_pass(d: ReadDecision) -> Reason {
     match d {
         ReadDecision::PassThrough { log } => log.reason,
-        ReadDecision::Redirect { log, .. } => panic!("expected PassThrough; got Redirect({:?})", log.reason),
+        ReadDecision::Redirect { log, .. } => {
+            panic!("expected PassThrough; got Redirect({:?})", log.reason)
+        }
     }
 }
 
 fn unwrap_redirect(d: ReadDecision) -> (PathBuf, Reason) {
     match d {
         ReadDecision::Redirect { redirect_to, log } => (redirect_to, log.reason),
-        ReadDecision::PassThrough { log } => panic!("expected Redirect; got PassThrough({:?})", log.reason),
+        ReadDecision::PassThrough { log } => {
+            panic!("expected Redirect; got PassThrough({:?})", log.reason)
+        }
     }
 }
 
@@ -123,7 +138,10 @@ fn gate_disabled_always_passes_through_with_clear_reason() {
     let reason = unwrap_pass(decide_with_gate(false, &evt));
     assert_eq!(reason, Reason::GateDisabled);
     // Cache dir is never even created when the gate is off.
-    assert!(!dir.join("cache").exists(), "gate off must not create cache dir");
+    assert!(
+        !dir.join("cache").exists(),
+        "gate off must not create cache dir"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -179,10 +197,16 @@ fn slicing_offset_or_limit_passes_through() {
     std::env::set_var("KNAPSACK_STORE", dir.join("store"));
 
     let evt_offset = make_event(src.to_str().unwrap(), &[("offset", Json::Num(100.0))]);
-    assert_eq!(unwrap_pass(decide_with_gate(true, &evt_offset)), Reason::SlicingRequested);
+    assert_eq!(
+        unwrap_pass(decide_with_gate(true, &evt_offset)),
+        Reason::SlicingRequested
+    );
 
     let evt_limit = make_event(src.to_str().unwrap(), &[("limit", Json::Num(50.0))]);
-    assert_eq!(unwrap_pass(decide_with_gate(true, &evt_limit)), Reason::SlicingRequested);
+    assert_eq!(
+        unwrap_pass(decide_with_gate(true, &evt_limit)),
+        Reason::SlicingRequested
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -193,7 +217,10 @@ fn unreadable_file_passes_through() {
     std::env::set_var("KNAPSACK_READ_CACHE", dir.join("cache"));
     std::env::set_var("KNAPSACK_STORE", dir.join("store"));
     let evt = make_event(dir.join("does-not-exist.txt").to_str().unwrap(), &[]);
-    assert_eq!(unwrap_pass(decide_with_gate(true, &evt)), Reason::FileUnreadable);
+    assert_eq!(
+        unwrap_pass(decide_with_gate(true, &evt)),
+        Reason::FileUnreadable
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -213,7 +240,10 @@ fn worse_than_raw_passes_through() {
         writeln!(f, "function handler{i}() {{ return {i}; }}").unwrap();
     }
     drop(f);
-    assert!(std::fs::metadata(&src).unwrap().len() > 8 * 1024, "fixture must clear the too-small bar");
+    assert!(
+        std::fs::metadata(&src).unwrap().len() > 8 * 1024,
+        "fixture must clear the too-small bar"
+    );
 
     let _env = EnvGuard::new();
     std::env::set_var("KNAPSACK_READ_CACHE", dir.join("cache"));
@@ -242,14 +272,30 @@ fn redirect_emitted_writes_cache_and_returns_path() {
     let evt = make_event(src.to_str().unwrap(), &[]);
     let (redirect_to, reason) = unwrap_redirect(decide_with_gate(true, &evt));
     assert_eq!(reason, Reason::RedirectEmitted);
-    assert!(redirect_to.exists(), "cache file should exist after a successful decide");
-    assert!(redirect_to.starts_with(&cache), "redirect must point inside the configured cache dir");
+    assert!(
+        redirect_to.exists(),
+        "cache file should exist after a successful decide"
+    );
+    assert!(
+        redirect_to.starts_with(&cache),
+        "redirect must point inside the configured cache dir"
+    );
 
     // Header UX: original path + recall instructions, both clearly stated.
     let view = std::fs::read_to_string(&redirect_to).unwrap();
-    assert!(view.contains("Knapsack read cache"), "header banner present:\n{}", view);
-    assert!(view.contains(src.to_string_lossy().as_ref()), "header names the ORIGINAL path");
-    assert!(view.contains("knapsack expand ks2_"), "header surfaces the recall command");
+    assert!(
+        view.contains("Knapsack read cache"),
+        "header banner present:\n{}",
+        view
+    );
+    assert!(
+        view.contains(src.to_string_lossy().as_ref()),
+        "header names the ORIGINAL path"
+    );
+    assert!(
+        view.contains("knapsack expand ks2_"),
+        "header surfaces the recall command"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -269,16 +315,33 @@ fn cache_hit_on_unchanged_source_does_not_rewrite_view() {
 
     let evt = make_event(src.to_str().unwrap(), &[]);
     let (redirect_to_1, reason_1) = unwrap_redirect(decide_with_gate(true, &evt));
-    assert_eq!(reason_1, Reason::RedirectEmitted, "first read of a file is a fresh redirect");
+    assert_eq!(
+        reason_1,
+        Reason::RedirectEmitted,
+        "first read of a file is a fresh redirect"
+    );
     let bytes_1 = std::fs::read(&redirect_to_1).unwrap();
-    let mtime_1 = std::fs::metadata(&redirect_to_1).unwrap().modified().unwrap();
+    let mtime_1 = std::fs::metadata(&redirect_to_1)
+        .unwrap()
+        .modified()
+        .unwrap();
 
     let (redirect_to_2, reason_2) = unwrap_redirect(decide_with_gate(true, &evt));
-    assert_eq!(reason_2, Reason::CacheHit, "second read of the same file is a cache hit");
-    assert_eq!(redirect_to_1, redirect_to_2, "same source -> same cache path");
+    assert_eq!(
+        reason_2,
+        Reason::CacheHit,
+        "second read of the same file is a cache hit"
+    );
+    assert_eq!(
+        redirect_to_1, redirect_to_2,
+        "same source -> same cache path"
+    );
     let bytes_2 = std::fs::read(&redirect_to_2).unwrap();
     assert_eq!(bytes_1, bytes_2, "cache contents unchanged on a re-hit");
-    let mtime_2 = std::fs::metadata(&redirect_to_2).unwrap().modified().unwrap();
+    let mtime_2 = std::fs::metadata(&redirect_to_2)
+        .unwrap()
+        .modified()
+        .unwrap();
     // Note: mtime equality is OS-dependent at sub-second resolution; we don't assert
     // equality, just that the cache file still exists and the bytes match.
     let _ = (mtime_1, mtime_2);
@@ -343,17 +406,28 @@ fn cache_corruption_routes_through_regenerated_branch() {
     // The corrupt branch still returns the same cache path AND we wrote a fresh
     // view to it. The reason is RedirectEmitted (not CacheHit — the cache wasn't
     // really usable) — the existing infrastructure logs note=regenerated alongside.
-    assert_eq!(cache_path, cache_path_2, "same content -> same cache filename");
+    assert_eq!(
+        cache_path, cache_path_2,
+        "same content -> same cache filename"
+    );
     let bytes_after = std::fs::read(&cache_path_2).unwrap();
     assert!(
         std::str::from_utf8(&bytes_after).is_ok(),
         "regenerated cache must be valid UTF-8 again (we rewrote it)"
     );
-    assert_ne!(bytes_after, vec![0xff, 0xfe, 0xff, 0xfe], "corrupt bytes must be replaced");
+    assert_ne!(
+        bytes_after,
+        vec![0xff, 0xfe, 0xff, 0xfe],
+        "corrupt bytes must be replaced"
+    );
 
     // Third read should now be a clean CacheHit.
     let (_, reason_3) = unwrap_redirect(decide_with_gate(true, &evt));
-    assert_eq!(reason_3, Reason::CacheHit, "post-regeneration read is a cache hit");
+    assert_eq!(
+        reason_3,
+        Reason::CacheHit,
+        "post-regeneration read is a cache hit"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -377,7 +451,10 @@ fn changed_source_routes_to_different_cache_file() {
         writeln!(f, "[INFO] new tail line that shifts the digest").unwrap();
     }
     let (cache_2, _) = unwrap_redirect(decide_with_gate(true, &evt));
-    assert_ne!(cache_1, cache_2, "changed source must route to a different cache file");
+    assert_ne!(
+        cache_1, cache_2,
+        "changed source must route to a different cache file"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -417,8 +494,15 @@ fn decisions_land_in_the_why_log() {
     assert_eq!(tail.len(), 3);
     assert_eq!(tail[0].reason, Reason::GateDisabled, "first call: gate off");
     assert_eq!(tail[1].reason, Reason::TooSmall, "second call: too small");
-    assert_eq!(tail[2].reason, Reason::RedirectEmitted, "third call: redirect happy path");
-    assert!(tail[2].redirect_to.is_some(), "redirect entry carries the cache path");
+    assert_eq!(
+        tail[2].reason,
+        Reason::RedirectEmitted,
+        "third call: redirect happy path"
+    );
+    assert!(
+        tail[2].redirect_to.is_some(),
+        "redirect entry carries the cache path"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -443,8 +527,14 @@ fn gc_cleans_read_cache_files() {
 
     let store = Store::new(dir.join("store"));
     let report = gc_run(&store, 0, false);
-    assert!(report.read_cache_scanned >= 2, "gc scanned both cache files");
-    assert!(report.read_cache_deleted >= 2, "gc removed stale cache files");
+    assert!(
+        report.read_cache_scanned >= 2,
+        "gc scanned both cache files"
+    );
+    assert!(
+        report.read_cache_deleted >= 2,
+        "gc removed stale cache files"
+    );
     assert!(!cache.join("aaaa.md").exists(), "cache file gone");
     assert!(!cache.join("bbbb.md").exists(), "cache file gone");
     let _ = std::fs::remove_dir_all(&dir);

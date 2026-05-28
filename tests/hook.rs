@@ -30,7 +30,11 @@ fn end_to_end_envelope_is_correct() {
     assert!(wrapped.contains(r#"pack - --session "sess-42""#));
 
     // Build the updatedInput envelope the way the hook does and re-serialize it.
-    let mut obj = if let Json::Obj(o) = ti { o.clone() } else { panic!() };
+    let mut obj = if let Json::Obj(o) = ti {
+        o.clone()
+    } else {
+        panic!()
+    };
     json::set_key(&mut obj, "command", Json::Str(wrapped));
     let out = Json::Obj(vec![(
         "hookSpecificOutput".into(),
@@ -43,11 +47,20 @@ fn end_to_end_envelope_is_correct() {
 
     // It must re-parse, preserve the untouched field, and carry the rewritten command.
     let back = json::parse(&s).unwrap();
-    let ui = back.get("hookSpecificOutput").and_then(|h| h.get("updatedInput")).unwrap();
+    let ui = back
+        .get("hookSpecificOutput")
+        .and_then(|h| h.get("updatedInput"))
+        .unwrap();
     assert_eq!(ui.get("description").and_then(|v| v.as_str()), Some("x"));
-    assert!(ui.get("command").and_then(|v| v.as_str()).unwrap().contains("pack -"));
+    assert!(ui
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .contains("pack -"));
     assert_eq!(
-        back.get("hookSpecificOutput").and_then(|h| h.get("hookEventName")).and_then(|v| v.as_str()),
+        back.get("hookSpecificOutput")
+            .and_then(|h| h.get("hookEventName"))
+            .and_then(|v| v.as_str()),
         Some("PreToolUse")
     );
 }

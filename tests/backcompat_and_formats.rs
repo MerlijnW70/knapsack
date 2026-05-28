@@ -16,7 +16,10 @@ use knapsack::sha256::sha256_hex;
 use knapsack::store::Store;
 
 fn tmpstore(tag: &str) -> Store {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let dir = std::env::temp_dir().join(format!("kn-bc-{}-{}-{}", tag, std::process::id(), t));
     Store::new(dir)
 }
@@ -36,7 +39,9 @@ fn legacy_ks_10_hex_handle_resolves() {
     store.put_with_handle(&legacy_handle, bytes);
     // Now read it back — the verify-on-read routing in hash::verify should
     // recognize the ks_<10 hex> shape and re-hash with SHA-1.
-    let recalled = store.get(&legacy_handle).expect("legacy ks_<10> must resolve");
+    let recalled = store
+        .get(&legacy_handle)
+        .expect("legacy ks_<10> must resolve");
     assert_eq!(recalled, bytes, "legacy 10-hex recall byte-exact");
 }
 
@@ -46,7 +51,9 @@ fn legacy_ks_16_hex_handle_resolves() {
     let bytes = b"legacy 16-hex content";
     let legacy_handle = format!("ks_{}", &sha1_hex(bytes)[..16]);
     store.put_with_handle(&legacy_handle, bytes);
-    let recalled = store.get(&legacy_handle).expect("legacy ks_<16> must resolve");
+    let recalled = store
+        .get(&legacy_handle)
+        .expect("legacy ks_<16> must resolve");
     assert_eq!(recalled, bytes);
 }
 
@@ -95,7 +102,9 @@ fn flat_layout_block_resolves_via_fallback() {
     let flat = store.dir().join(&h);
     std::fs::write(&flat, bytes).unwrap();
     // get() should find it via the flat_path fallback.
-    let recalled = store.get(&h).expect("flat-layout block must resolve via fallback");
+    let recalled = store
+        .get(&h)
+        .expect("flat-layout block must resolve via fallback");
     assert_eq!(recalled, bytes);
 }
 
@@ -131,7 +140,10 @@ fn corrupt_sharded_falls_back_to_valid_flat() {
     std::fs::write(&flat, bytes).unwrap();
     // get() should fall back to flat and return the valid bytes.
     let recalled = store.get(&h).expect("flat-fallback should resolve");
-    assert_eq!(recalled, bytes, "corrupt sharded -> fall back to valid flat");
+    assert_eq!(
+        recalled, bytes,
+        "corrupt sharded -> fall back to valid flat"
+    );
 }
 
 // ---------- output format stability (status / doctor / metrics / why-last) ----------
@@ -154,7 +166,10 @@ fn status_inactive_shape_is_pinned() {
     // Pin the exact user-facing strings; refactors that change these break
     // anyone scripting against the output.
     assert!(report.contains("Knapsack inactive"), "got:\n{report}");
-    assert!(report.contains("knapsack install"), "advises install: \n{report}");
+    assert!(
+        report.contains("knapsack install"),
+        "advises install: \n{report}"
+    );
 }
 
 #[test]
@@ -175,7 +190,10 @@ fn metrics_report_baseline_shape() {
         "NET saved",
         "verdict:",
     ] {
-        assert!(report.contains(label), "metrics must contain {label:?}:\n{report}");
+        assert!(
+            report.contains(label),
+            "metrics must contain {label:?}:\n{report}"
+        );
     }
 }
 
@@ -210,21 +228,40 @@ fn metrics_report_leads_with_current_session_block() {
     let report = knapsack::metrics::report();
 
     // Current session block leads.
-    let current_idx = report.find("current session").expect("'current session' block must appear");
-    let lifetime_idx = report.find("knapsack live stats").expect("lifetime table must appear");
+    let current_idx = report
+        .find("current session")
+        .expect("'current session' block must appear");
+    let lifetime_idx = report
+        .find("knapsack live stats")
+        .expect("lifetime table must appear");
     assert!(
         current_idx < lifetime_idx,
         "current session block must come BEFORE the lifetime table:\n{report}"
     );
 
     // Current session shows the positive numbers, not the historical debt.
-    assert!(report.contains("saved tokens           : 5677"), "current session's saved tokens lead:\n{report}");
-    assert!(report.contains("reduction              : 84%"), "current session's reduction (5677/6689 = 84%):\n{report}");
+    assert!(
+        report.contains("saved tokens           : 5677"),
+        "current session's saved tokens lead:\n{report}"
+    );
+    assert!(
+        report.contains("reduction              : 84%"),
+        "current session's reduction (5677/6689 = 84%):\n{report}"
+    );
 
     // Lifetime table is preserved verbatim: NET line, refetched total, verdict.
-    assert!(report.contains("NET saved"), "lifetime NET line is preserved:\n{report}");
-    assert!(report.contains("6952811"), "lifetime refetched total is preserved:\n{report}");
-    assert!(report.contains("verdict:"), "lifetime verdict is preserved:\n{report}");
+    assert!(
+        report.contains("NET saved"),
+        "lifetime NET line is preserved:\n{report}"
+    );
+    assert!(
+        report.contains("6952811"),
+        "lifetime refetched total is preserved:\n{report}"
+    );
+    assert!(
+        report.contains("verdict:"),
+        "lifetime verdict is preserved:\n{report}"
+    );
 }
 
 #[test]
@@ -234,8 +271,14 @@ fn metrics_report_omits_current_session_block_when_no_compresses_yet() {
     // The empty-state verdict in the lifetime table is the user signal.
     let _sb = sandbox_env("metrics-nodata-prefix");
     let report = knapsack::metrics::report();
-    assert!(!report.contains("current session"), "no compresses -> no current session block:\n{report}");
-    assert!(report.contains("no data yet"), "empty-state verdict still leads:\n{report}");
+    assert!(
+        !report.contains("current session"),
+        "no compresses -> no current session block:\n{report}"
+    );
+    assert!(
+        report.contains("no data yet"),
+        "empty-state verdict still leads:\n{report}"
+    );
 }
 
 #[test]
@@ -251,7 +294,10 @@ fn doctor_output_has_each_check_line() {
         "MCP initialize",
         "pack/expand smoke",
     ] {
-        assert!(report.contains(label), "doctor must report '{label}':\n{report}");
+        assert!(
+            report.contains(label),
+            "doctor must report '{label}':\n{report}"
+        );
     }
 }
 

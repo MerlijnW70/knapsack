@@ -51,7 +51,11 @@ impl Json {
 const MAX_DEPTH: usize = 256;
 
 pub fn parse(s: &str) -> Result<Json, String> {
-    let mut p = Parser { c: s.chars().collect(), i: 0, depth: 0 };
+    let mut p = Parser {
+        c: s.chars().collect(),
+        i: 0,
+        depth: 0,
+    };
     p.ws();
     let v = p.value()?;
     p.ws();
@@ -69,7 +73,10 @@ impl Parser {
         self.c.get(self.i).copied()
     }
     fn ws(&mut self) {
-        while matches!(self.peek(), Some(' ') | Some('\t') | Some('\n') | Some('\r')) {
+        while matches!(
+            self.peek(),
+            Some(' ') | Some('\t') | Some('\n') | Some('\r')
+        ) {
             self.i += 1;
         }
     }
@@ -181,7 +188,8 @@ impl Parser {
                                     if self.peek() == Some('u') {
                                         self.i += 1;
                                         let lo = self.hex4()?;
-                                        let c = 0x10000 + (((cp as u32 - 0xD800) << 10) | (lo as u32 - 0xDC00));
+                                        let c = 0x10000
+                                            + (((cp as u32 - 0xD800) << 10) | (lo as u32 - 0xDC00));
                                         if let Some(ch) = char::from_u32(c) {
                                             s.push(ch);
                                         }
@@ -227,7 +235,9 @@ impl Parser {
         }
     }
     fn starts_with(&self, lit: &str) -> bool {
-        lit.chars().enumerate().all(|(k, ch)| self.c.get(self.i + k) == Some(&ch))
+        lit.chars()
+            .enumerate()
+            .all(|(k, ch)| self.c.get(self.i + k) == Some(&ch))
     }
     fn number(&mut self) -> Result<Json, String> {
         let start = self.i;
@@ -239,7 +249,9 @@ impl Parser {
             }
         }
         let s: String = self.c[start..self.i].iter().collect();
-        s.parse::<f64>().map(Json::Num).map_err(|_| "bad number".into())
+        s.parse::<f64>()
+            .map(Json::Num)
+            .map_err(|_| "bad number".into())
     }
 }
 
@@ -271,10 +283,16 @@ pub fn to_string(j: &Json) -> String {
             }
         }
         Json::Str(s) => format!("\"{}\"", esc(s)),
-        Json::Arr(a) => format!("[{}]", a.iter().map(to_string).collect::<Vec<_>>().join(",")),
+        Json::Arr(a) => format!(
+            "[{}]",
+            a.iter().map(to_string).collect::<Vec<_>>().join(",")
+        ),
         Json::Obj(o) => format!(
             "{{{}}}",
-            o.iter().map(|(k, v)| format!("\"{}\":{}", esc(k), to_string(v))).collect::<Vec<_>>().join(",")
+            o.iter()
+                .map(|(k, v)| format!("\"{}\":{}", esc(k), to_string(v)))
+                .collect::<Vec<_>>()
+                .join(",")
         ),
     }
 }
@@ -298,8 +316,15 @@ mod tests {
         let raw = r#"{"tool_name":"Bash","session_id":"abc-123","tool_input":{"command":"echo \"hi\" && rg 'a\\b'\ndone","timeout":5}}"#;
         let v = parse(raw).unwrap();
         assert_eq!(v.get("tool_name").and_then(|x| x.as_str()), Some("Bash"));
-        assert_eq!(v.get("session_id").and_then(|x| x.as_str()), Some("abc-123"));
-        let cmd = v.get("tool_input").and_then(|t| t.get("command")).and_then(|x| x.as_str()).unwrap();
+        assert_eq!(
+            v.get("session_id").and_then(|x| x.as_str()),
+            Some("abc-123")
+        );
+        let cmd = v
+            .get("tool_input")
+            .and_then(|t| t.get("command"))
+            .and_then(|x| x.as_str())
+            .unwrap();
         assert!(cmd.contains("echo \"hi\""));
         assert!(cmd.contains("a\\b"));
         assert!(cmd.contains('\n'));

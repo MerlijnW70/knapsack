@@ -16,10 +16,47 @@ use crate::json::{self, Json};
 use std::io::Read;
 
 const COMMANDS: [&str; 41] = [
-    "npm", "pnpm", "yarn", "cargo", "go", "make", "gradle", "mvn", "bundle", "pip", "poetry",
-    "node", "bun", "deno", "dotnet", "gradlew", "rspec", "phpunit", "ctest", "tox", "nox", "ninja",
-    "swift", "tsx", "psql", "mysql", "sqlite3", "pytest", "jest", "vitest", "mocha", "tsc",
-    "eslint", "prettier", "webpack", "vite", "rollup", "docker", "kubectl", "terraform", "ansible",
+    "npm",
+    "pnpm",
+    "yarn",
+    "cargo",
+    "go",
+    "make",
+    "gradle",
+    "mvn",
+    "bundle",
+    "pip",
+    "poetry",
+    "node",
+    "bun",
+    "deno",
+    "dotnet",
+    "gradlew",
+    "rspec",
+    "phpunit",
+    "ctest",
+    "tox",
+    "nox",
+    "ninja",
+    "swift",
+    "tsx",
+    "psql",
+    "mysql",
+    "sqlite3",
+    "pytest",
+    "jest",
+    "vitest",
+    "mocha",
+    "tsc",
+    "eslint",
+    "prettier",
+    "webpack",
+    "vite",
+    "rollup",
+    "docker",
+    "kubectl",
+    "terraform",
+    "ansible",
 ];
 const EXTRA: [&str; 6] = ["grep", "rg", "ag", "find", "tree", "du"];
 const LOG_COMMANDS: [&str; 3] = ["tail", "head", "cat"];
@@ -73,7 +110,11 @@ fn has_shell_meta(cmd: &str) -> bool {
     for (i, &c) in bytes.iter().enumerate() {
         if c == '&' {
             let prev = if i > 0 { bytes[i - 1] } else { ' ' };
-            let next = if i + 1 < bytes.len() { bytes[i + 1] } else { ' ' };
+            let next = if i + 1 < bytes.len() {
+                bytes[i + 1]
+            } else {
+                ' '
+            };
             if prev != '&' && next != '&' && prev != '>' && next != '>' {
                 return true;
             }
@@ -128,7 +169,10 @@ fn split_segments(cmd: &str) -> Vec<String> {
         i += 1;
     }
     segs.push(cur);
-    segs.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+    segs.into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// Strip leading `VAR=value` assignments and known wrappers; return the effective program.
@@ -163,7 +207,7 @@ fn strip_env_assign(s: &str) -> Option<&str> {
         return None;
     }
     i += 1; // past '='
-    // consume the value: quoted span, or up to whitespace
+            // consume the value: quoted span, or up to whitespace
     if i < ch.len() && (ch[i] == '"' || ch[i] == '\'') {
         let q = ch[i];
         i += 1;
@@ -197,14 +241,23 @@ fn match_effective(segment: &str) -> Option<String> {
 pub fn decide(cmd: &str) -> Decision {
     let cmd = cmd.trim();
     if cmd.is_empty() || has_shell_meta(cmd) {
-        return Decision { wrap: false, matched: None };
+        return Decision {
+            wrap: false,
+            matched: None,
+        };
     }
     for seg in split_segments(cmd) {
         if let Some(m) = match_effective(&seg) {
-            return Decision { wrap: true, matched: Some(m) };
+            return Decision {
+                wrap: true,
+                matched: Some(m),
+            };
         }
     }
-    Decision { wrap: false, matched: None }
+    Decision {
+        wrap: false,
+        matched: None,
+    }
 }
 
 /// Build the shell command Claude Code will run instead: run the original, capture its
@@ -216,7 +269,13 @@ pub fn decide(cmd: &str) -> Decision {
 /// can't leave dangling backrefs). Empty/None means "no transcript-driven gating" —
 /// the safe-fallback contract from the brief, identical to behaviour before this
 /// argument existed.
-pub fn wrap_command(cmd: &str, bin: &str, session: &str, prog: &str, transcript_path: Option<&str>) -> String {
+pub fn wrap_command(
+    cmd: &str,
+    bin: &str,
+    session: &str,
+    prog: &str,
+    transcript_path: Option<&str>,
+) -> String {
     let inner = cmd.trim_end_matches([';', ' ']);
     let transcript_arg = match transcript_path {
         Some(p) if !p.trim().is_empty() => format!(" --transcript \"{}\"", p),
@@ -253,7 +312,11 @@ fn session_key(evt: &Json) -> String {
         }
     }
     let cwd = evt.get("cwd").and_then(|v| v.as_str()).unwrap_or("");
-    format!("fallback-{}-{}", &crate::hash::sha1_hex(cwd.as_bytes())[..8], day_stamp())
+    format!(
+        "fallback-{}-{}",
+        &crate::hash::sha1_hex(cwd.as_bytes())[..8],
+        day_stamp()
+    )
 }
 
 /// PreToolUse entry point. Always exits 0; emits the rewrite only when wrapping.
@@ -298,7 +361,13 @@ pub fn run_hook() {
     // may not include it). We pass through whatever we got and let pack treat the
     // missing/unreadable case as "no gating" — see api::pack_output + transcript::scan.
     let transcript_path = evt.get("transcript_path").and_then(|v| v.as_str());
-    let wrapped = wrap_command(&cmd, &bin, &session, dec.matched.as_deref().unwrap_or(""), transcript_path);
+    let wrapped = wrap_command(
+        &cmd,
+        &bin,
+        &session,
+        dec.matched.as_deref().unwrap_or(""),
+        transcript_path,
+    );
 
     let mut obj = match tool_input {
         Json::Obj(o) => o.clone(),
@@ -334,7 +403,10 @@ mod tests {
         assert!(!decide("cargo build 2>&1").wrap); // redirect
         assert!(!decide("npm test &").wrap); // background
         assert!(!decide("echo remember to npm install").wrap); // echo not on allowlist
-        assert!(decide("rg 'a|b' src/").wrap, "a pipe inside quotes is not a shell operator");
+        assert!(
+            decide("rg 'a|b' src/").wrap,
+            "a pipe inside quotes is not a shell operator"
+        );
     }
     #[test]
     fn wrap_command_shape() {

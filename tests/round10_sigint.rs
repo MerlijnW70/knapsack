@@ -41,7 +41,11 @@ fn knapsack_bin() -> PathBuf {
     let bin = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target")
         .join("release")
-        .join(if cfg!(windows) { "knapsack.exe" } else { "knapsack" });
+        .join(if cfg!(windows) {
+            "knapsack.exe"
+        } else {
+            "knapsack"
+        });
     assert!(
         bin.exists(),
         "release binary missing at {}; run `cargo build --release` first",
@@ -156,7 +160,11 @@ fn kill_mid_pack_metrics_summary_does_not_panic() {
     // We don't care what the count IS; we care that it didn't panic.
     // (compress_events could be 0 if the child was killed before flushing,
     // or 1 if it wrote one event before dying. Either is fine.)
-    assert!(s.compress_events <= 100, "sanity: count is in a reasonable range, got {}", s.compress_events);
+    assert!(
+        s.compress_events <= 100,
+        "sanity: count is in a reasonable range, got {}",
+        s.compress_events
+    );
 }
 
 // =====================================================================

@@ -80,13 +80,29 @@ fn looks_like_json(bytes: &[u8]) -> bool {
 }
 
 fn parses_as_json(bytes: &[u8]) -> bool {
-    let Ok(s) = std::str::from_utf8(bytes) else { return false };
+    let Ok(s) = std::str::from_utf8(bytes) else {
+        return false;
+    };
     crate::json::parse(s).is_ok()
 }
 
 const SIG_KW: [&str; 16] = [
-    "import", "export", "require(", "module", "package", "#include", "function", "class",
-    "interface", "enum", "namespace", "fn ", "func ", "def ", "pub ", "type ",
+    "import",
+    "export",
+    "require(",
+    "module",
+    "package",
+    "#include",
+    "function",
+    "class",
+    "interface",
+    "enum",
+    "namespace",
+    "fn ",
+    "func ",
+    "def ",
+    "pub ",
+    "type ",
 ];
 
 /// A line (already left-trimmed) that declares structure worth always keeping.
@@ -109,11 +125,16 @@ pub fn is_method(t: &str) -> bool {
     if !l.ends_with('{') {
         return false;
     }
-    let ident: String = l.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$').collect();
+    let ident: String = l
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+        .collect();
     if ident.is_empty() {
         return false;
     }
-    const CTRL: [&str; 10] = ["if", "for", "while", "switch", "catch", "do", "return", "else", "function", "class"];
+    const CTRL: [&str; 10] = [
+        "if", "for", "while", "switch", "catch", "do", "return", "else", "function", "class",
+    ];
     if CTRL.contains(&ident.as_str()) {
         return false;
     }
