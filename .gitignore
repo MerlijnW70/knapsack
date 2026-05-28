@@ -21,4 +21,8 @@ metrics.jsonl
 # Claude Code project-local state (permissions, local commands) — user-specific.
 .claude/
 
+# ANVIL per-project gate config — user-specific shortcut for source-tree gates
+# (see H:/anvil/README.md). Not part of the project contract.
+.anvil/
+
 # Note: Cargo.lock IS committed (this crate builds a binary).
