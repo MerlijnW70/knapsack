@@ -5,6 +5,8 @@ All notable changes to Knapsack are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.0.2] — 2026-05-28
+
 ### Fixed (release pipeline)
 
 - **`release.yml` switched from `softprops/action-gh-release@v2` to
