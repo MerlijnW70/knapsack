@@ -26,3 +26,6 @@ metrics.jsonl
 .anvil/
 
 # Note: Cargo.lock IS committed (this crate builds a binary).
+
+# Local ANVIL launcher (forwards to H:/anvil) -- machine-specific path.
+/anvil.cmd

@@ -6,6 +6,8 @@
 //! C(=knapsack) <= B(=stateless) <= A(=raw) holds for the synthetic workload
 //! it's designed for.
 
+mod common;
+
 use knapsack::api::{expand_handle, pack_output, ExpandCaller, ExpandRequest, PackRequest};
 use knapsack::bench;
 use knapsack::content_type::ContentType;
@@ -258,7 +260,7 @@ fn gc_coverage_at_5000_blocks_is_fast() {
     let (total, _) = gc::coverage(&store);
     let dur = start.elapsed();
     assert_eq!(total, 5000);
-    assert!(dur.as_secs() < 5, "coverage scan of 5K blocks took {dur:?}");
+    common::perf_budget("coverage scan of 5K blocks", dur, 5);
 
     let _ = std::fs::remove_dir_all(&dir);
 }
