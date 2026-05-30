@@ -1,7 +1,13 @@
 //! Char-class token estimator, ported from Rucksack's lib/compress.js. Iterates UTF-16
 //! code units (`encode_utf16`) to match JS `charCodeAt` exactly, so the Rust benchmark
-//! reproduces the JS numbers with 0% estimator drift. Tokenizer-exact counting is a
-//! later swap (mechanism ⑨) behind this same `tokens()` signature.
+//! reproduces the JS numbers with 0% estimator drift.
+//!
+//! This stays the canonical ENGINE counter — `pack`/`structural`/`pack_doc`/`ledger`/
+//! `bench` call it directly for deterministic, offline, zero-cost compression decisions.
+//! Tokenizer-exact counting (mechanism ⑨) now lives behind the selectable boundary in
+//! [`crate::tokenizer`] (`knapsack tokens --tokenizer …`), which wraps this `tokens()`
+//! function as its default `Estimate` backend — the reporting surface can opt into exact
+//! counts without ever putting a network call or a multi-MB BPE on the hot path.
 
 pub const W_ALPHA: f64 = 0.196;
 pub const W_DIGIT: f64 = 0.699;

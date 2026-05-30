@@ -234,6 +234,8 @@ Nothing extra — Knapsack is a single small binary with no runtime dependencies
 
 Knapsack is a small Rust binary with zero runtime dependencies. It plugs into Claude Code through its hook and recall-tool surfaces. Local data lives under `~/.knapsack/`.
 
+Token counts are estimated by default with a fast, offline char-class heuristic — no network, no model download. If you want an exact count for a specific file, `knapsack tokens <file> --tokenizer claude-api` queries Anthropic's `count_tokens` endpoint (needs `ANTHROPIC_API_KEY`); offline GPT tokenizers live behind the opt-in `exact-tokenizer` build feature. The default build stays zero-dependency.
+
 A deeper architecture write-up belongs in `ARCHITECTURE.md` — TODO.
 
 ---

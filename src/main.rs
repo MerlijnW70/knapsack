@@ -13,6 +13,8 @@
 //!   knapsack delta <old> <new>        what a re-read costs after the first read
 //!   knapsack store put <file>         store exact bytes, print handle
 //!   knapsack metrics                  the live savings scoreboard
+//!   knapsack tokens [<file>|-]        count tokens under a selectable backend
+//!                                     [--tokenizer estimate|claude-api|gpt-cl100k|gpt-o200k] [--model claude|sonnet|haiku]
 //!   knapsack bench                    the A/B/C edit->test loop benchmark
 //!   knapsack install                  print Claude Code hook wiring
 //!   knapsack gc                       drop blocks older than --older-than DAYS (default 30)
@@ -318,6 +320,8 @@ fn main() {
 
         "metrics" => println!("{}", metrics::report()),
 
+        "tokens" => run_tokens(rest),
+
         "ab" => {
             let kn = flag(rest, "--knapsack")
                 .map(std::path::PathBuf::from)
@@ -461,6 +465,78 @@ fn run_pack_stdin(path: &str, rest: &[String]) {
         r.delta_hits,
         r.evicted_resends
     );
+}
+
+/// `knapsack tokens [<file>|-] [--tokenizer SPEC] [--model M]` — count the tokens in a
+/// file (or stdin via `-`, the default) under a selectable backend. This is the
+/// point-of-truth surface for the tokenizer boundary (`src/tokenizer.rs`): the default
+/// `estimate` backend is offline + zero-dep and prints `~N` (honestly inexact); exact
+/// backends print `N`. Errors are loud and non-zero — the user asked for a specific
+/// count, so silently falling back to the estimate would mislead.
+fn run_tokens(rest: &[String]) {
+    use knapsack::tokenizer::{resolve, Model};
+
+    let model = match flag(rest, "--model") {
+        None => None,
+        Some(m) => match Model::parse(m) {
+            Some(parsed) => Some(parsed),
+            None => {
+                eprintln!(
+                    "knapsack: --model: unknown model '{}' (expected: claude, sonnet, haiku)",
+                    knapsack::hash::display_handle(m)
+                );
+                exit(2);
+            }
+        },
+    };
+
+    let backend = match resolve(flag(rest, "--tokenizer"), model) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("knapsack: {}", e);
+            exit(2);
+        }
+    };
+
+    // First non-flag positional is the path; default to stdin (the pipe-friendly form,
+    // matching `knapsack pack -`).
+    let bytes = match first_positional(rest).as_deref() {
+        None | Some("-") => read_stdin(),
+        Some(p) => read_file(p),
+    };
+
+    match backend.count_bytes(&bytes) {
+        Ok(n) => {
+            let prefix = if backend.is_exact() { "" } else { "~" };
+            println!("{}{} tokens ({})", prefix, n, backend.label());
+        }
+        Err(e) => {
+            eprintln!("knapsack: {}", e);
+            exit(2);
+        }
+    }
+}
+
+/// First positional argument (not a flag, not a flag's space-separated value). Knows the
+/// value-taking flags so `tokens --tokenizer claude-api file.txt` resolves `file.txt`, not
+/// `claude-api`. `--name=value` forms are self-contained and skipped as a single token.
+fn first_positional(rest: &[String]) -> Option<String> {
+    const VALUE_FLAGS: [&str; 2] = ["--tokenizer", "--model"];
+    let mut i = 0;
+    while i < rest.len() {
+        let a = &rest[i];
+        if a.starts_with("--") {
+            // A space-form value flag (`--tokenizer X`) consumes the following arg too.
+            if VALUE_FLAGS.contains(&a.as_str()) && !a.contains('=') {
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        return Some(a.clone());
+    }
+    None
 }
 
 /// Render the last N entries from the Read-hook decision log. One line per entry,
@@ -757,6 +833,7 @@ fn usage() -> ! {
          knapsack delta <old> <new>\n  \
          knapsack store put <file>\n  \
          knapsack metrics\n  \
+         knapsack tokens [<file>|-] [--tokenizer estimate|claude-api|gpt-cl100k|gpt-o200k] [--model claude|sonnet|haiku]\n  \
          knapsack ab [--knapsack PATH]\n  \
          knapsack bench\n  \
          knapsack doctor\n  \

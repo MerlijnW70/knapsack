@@ -5,6 +5,36 @@ All notable changes to Knapsack are documented here. Format follows
 
 ## [Unreleased]
 
+### Added (tokenizer boundary)
+
+- **Selectable token-counting backend behind one stable seam** (`src/tokenizer.rs`).
+  Knapsack reports *measured* savings, so how it counts tokens is its credibility surface.
+  Until now there was a single counter — the char-class estimator (`token_estimate`), which
+  is fast/offline/zero-dep but *estimated*, not tokenizer-exact. The new `Backend` enum
+  (`Estimate` / `ClaudeApi` / `GptCl100k` / `GptO200k`) is resolved from a `--tokenizer`
+  flag, then the `KNAPSACK_TOKENIZER` env var, then the `Estimate` default.
+  - **`knapsack tokens [<file>|-] [--tokenizer SPEC] [--model M]`** — the point-of-truth
+    surface. `estimate` (default) prints `~N` (honestly inexact); exact backends print `N`.
+    Loud, non-zero exit on a bad spec / unavailable backend / API failure — it never
+    silently falls back to the estimate when you asked for an exact count.
+  - **Engine vs reporting split is deliberate.** The compression hot path (`pack`,
+    `structural`, `pack_doc`, `ledger`, `bench`) keeps calling `token_estimate` directly and
+    is untouched — routing it through a network call or a multi-MB BPE would wreck latency
+    and make `bench` irreproducible. Only the human-facing reporting surface resolves a
+    `Backend`. The default path is byte-identical to before (pinned by
+    `default_backend_matches_engine_estimator_exactly`).
+  - **`claude-api`** — opt-in, exact for the model Knapsack actually reports on (Claude has
+    no public offline tokenizer). Calls Anthropic's `/v1/messages/count_tokens` via `curl`
+    (already an install-time dependency, so the binary stays dep-free), reads `input_tokens`,
+    requires `ANTHROPIC_API_KEY`. Request-build and response-parse are pure, unit-tested
+    functions; the request body goes over stdin so content never lands in process argv.
+  - **`gpt-cl100k` / `gpt-o200k`** — offline GPT BPE, behind the new zero-dependency
+    `exact-tokenizer` Cargo feature (default build stays tiny + zero-dep). Producing a
+    *provably* exact GPT count needs the official multi-MB merge tables vendored AND a
+    Unicode-correct pretokenizer; until that lands these return a typed `Unavailable`
+    (with an actionable message) rather than a plausible-but-wrong number. Knapsack does
+    not report a token count it cannot stand behind.
+
 ## [0.0.2] — 2026-05-28
 
 ### Fixed (release pipeline)

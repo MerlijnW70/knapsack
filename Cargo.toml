@@ -24,6 +24,14 @@ harness = false
 # (recall grep), similar (token-level diffs), tree-sitter (syntax-aware blocks).
 [dependencies]
 
+[features]
+# Default build stays zero-dependency and tiny. `exact-tokenizer` is the opt-in seam for
+# offline GPT BPE counting (cl100k/o200k); it currently pulls in no crates — the heavy
+# merge tables are vendored data, not a dependency — so the zero-supply-chain promise
+# holds even with the feature on. See src/tokenizer.rs.
+default = []
+exact-tokenizer = []
+
 [profile.release]
 opt-level = 3
 lto = true

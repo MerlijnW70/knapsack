@@ -12,6 +12,18 @@ use knapsack::meta::{self, Meta};
 use knapsack::Store;
 use std::path::{Path, PathBuf};
 
+// gc_run() also sweeps the Read-hook cache (config::read_cache_dir(), a PROCESS-GLOBAL
+// path defaulting under ~/.knapsack). When this suite runs alongside a live knapsack
+// session — e.g. a dogfooding Claude Code session with the read hook on — that session
+// keeps writing cache files, so gc's deleted/kept/meta_missing counts become
+// non-deterministic (observed: the legacy-fallback test saw deleted=2, expected 1).
+// EnvSandbox routes KNAPSACK_READ_CACHE (and the rest of the KNAPSACK_* set) at an empty
+// per-test dir and serializes via a global lock, so every gc-count assertion below is
+// deterministic regardless of ambient cache activity. The explicit `store_dir(...)` paths
+// the tests build are independent of the sandbox and unaffected.
+mod common;
+use common::EnvSandbox;
+
 fn store_dir(tag: &str) -> PathBuf {
     let t = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -182,6 +194,7 @@ fn legacy_ks_handles_still_expand_without_meta() {
 #[test]
 fn gc_removes_block_and_meta_as_a_pair() {
     // Brief: "gc verwijdert block + metadata consistent".
+    let _sb = EnvSandbox::new("gc-pair"); // isolate the read-cache sweep
     let dir = store_dir("gc-pair");
     let s = Store::new(dir.clone());
     let bytes = b"block that's about to age out";
@@ -208,6 +221,7 @@ fn gc_removes_block_and_meta_as_a_pair() {
 fn gc_dry_run_reports_without_touching() {
     // Brief contract: gc must be safely previewable. With --dry-run, NOTHING is
     // removed but the report still says what WOULD be removed.
+    let _sb = EnvSandbox::new("gc-dry"); // isolate the read-cache sweep
     let dir = store_dir("gc-dry");
     let s = Store::new(dir.clone());
     s.put(b"a");
@@ -227,6 +241,7 @@ fn gc_keeps_fresh_blocks() {
     // A block whose last_accessed is recent must NOT be removed. We can't slow the
     // test down enough for created_at to age, so we point gc at a huge threshold —
     // proves the keep path is reachable too, not just delete.
+    let _sb = EnvSandbox::new("gc-fresh"); // isolate the read-cache sweep
     let dir = store_dir("gc-fresh");
     let s = Store::new(dir.clone());
     s.put(b"keep me");
@@ -241,6 +256,7 @@ fn gc_keeps_fresh_blocks() {
 fn gc_handles_legacy_blocks_via_fs_mtime_fallback() {
     // A block with no .meta — pre-format-bump — still needs an age signal. gc falls
     // back to filesystem mtime; with a "0 seconds" threshold it still gets removed.
+    let _sb = EnvSandbox::new("gc-legacy"); // isolate the read-cache sweep
     let dir = store_dir("gc-legacy");
     let s = Store::new(dir.clone());
     let bytes = b"legacy block, no sidecar";
