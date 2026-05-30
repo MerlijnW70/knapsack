@@ -124,18 +124,12 @@ fn metrics_handles_10k_compress_events() {
         metrics::record_compress(&format!("sess-{}", i % 5), 1000, 500, 500, 10, 0);
     }
     let write_dur = start.elapsed();
-    assert!(
-        write_dur.as_secs() < 5,
-        "writing 10K metrics took {write_dur:?}"
-    );
+    common::perf_budget("writing 10K metrics", write_dur, 5);
 
     let start = std::time::Instant::now();
     let summary = metrics::summary();
     let read_dur = start.elapsed();
-    assert!(
-        read_dur.as_secs() < 5,
-        "reading 10K metrics took {read_dur:?}"
-    );
+    common::perf_budget("reading 10K metrics", read_dur, 5);
 
     assert_eq!(summary.compress_events, 10_000);
     assert!(summary.raw > 0);

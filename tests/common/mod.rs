@@ -147,3 +147,22 @@ fn sanitize_tag(tag: &str) -> String {
         })
         .collect()
 }
+
+/// Opt-in wall-clock perf budget. A correctness gate must not depend on
+/// wall-clock time (a loaded machine makes I/O-bound stress loops blow a hard
+/// budget — non-deterministic). So the hard assertion fires only when
+/// `KNAPSACK_PERF` is set (deliberate perf runs: `KNAPSACK_PERF=1 cargo test`);
+/// in the default gate an over-budget run is a non-fatal note. The test's
+/// functional/volume assertions still run unconditionally either way.
+pub fn perf_budget(label: &str, dur: std::time::Duration, max_secs: u64) {
+    if std::env::var_os("KNAPSACK_PERF").is_some() {
+        assert!(
+            dur.as_secs() < max_secs,
+            "{label} took {dur:?} (budget {max_secs}s)"
+        );
+    } else if dur.as_secs() >= max_secs {
+        eprintln!(
+            "perf note: {label} took {dur:?} (budget {max_secs}s; set KNAPSACK_PERF=1 to enforce)"
+        );
+    }
+}
