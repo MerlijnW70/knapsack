@@ -34,6 +34,7 @@ pub mod status;
 pub mod store;
 pub mod structural;
 pub mod token_estimate;
+pub mod tokenizer;
 pub mod transcript;
 pub mod why_log;
 
@@ -48,3 +49,4 @@ pub use pack::{pack, reconstruct, PackResult};
 pub use recall::{expand, RecallOut};
 pub use store::Store;
 pub use token_estimate::{tokens, tokens_bytes};
+pub use tokenizer::{Backend as Tokenizer, Model as TokenizerModel, TokenizerError};

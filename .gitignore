@@ -25,4 +25,8 @@ metrics.jsonl
 # (see H:/anvil/README.md). Not part of the project contract.
 .anvil/
 
+# Local ANVIL launcher — machine-specific wrapper that forwards to H:/anvil.
+# Hardcodes an absolute path, so it must not be committed.
+anvil.cmd
+
 # Note: Cargo.lock IS committed (this crate builds a binary).
